@@ -120,6 +120,16 @@ python ablation/improvement_3/train_with_early_stopping.py \
 ### 3. 推理生成
 
 ```bash
+--- 基线模型
+python improvement_3/inference.py \
+    --checkpoint_dir /mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507 \
+    --scenario_path /mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue \
+    --config_name profile_only \
+    --use_profile \
+    --gpu 1 \
+    --num_samples 5
+
+
 python ablation/improvement_3/inference.py \
     --checkpoint_dir /path/to/checkpoint \
     --scenario_path /path/to/scenario \
