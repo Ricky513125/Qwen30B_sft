@@ -773,14 +773,28 @@ def process_scenario(
     
     # 加载模型
     print("  加载模型权重...")
-    # 根据是否使用多 GPU 来决定设备设置
+    # 根据是否使用多 GPU 或 DeepSpeed 来决定设备设置
+    # DeepSpeed 会自动使用所有 GPU，所以也应该被视为多 GPU 模式
+    # 检查 DeepSpeed 是否可用（在函数内部检查，确保正确）
+    deepspeed_available = False
+    if use_deepspeed:
+        try:
+            import deepspeed
+            deepspeed_available = True
+        except ImportError:
+            deepspeed_available = False
+            print("  警告: DeepSpeed 未安装，将回退到普通加载方式")
+    
     if torch.cuda.is_available():
-        if use_multi_gpu:
+        if use_multi_gpu or (use_deepspeed and deepspeed_available):
             # 使用所有可用的 GPU
             num_gpus = torch.cuda.device_count()
-            print(f"  使用多 GPU 模式，可用 GPU 数量: {num_gpus}")
+            if use_deepspeed and deepspeed_available:
+                print(f"  使用 DeepSpeed 多 GPU 模式，可用 GPU 数量: {num_gpus}")
+            else:
+                print(f"  使用多 GPU 模式，可用 GPU 数量: {num_gpus}")
             print(f"  将使用 GPU: {list(range(num_gpus))}")
-            target_device = None  # device_map="auto" 会自动分配
+            target_device = None  # device_map="auto" 或 DeepSpeed 会自动分配
         else:
             # 使用指定的单个 GPU
             target_device = torch.device(f'cuda:{gpu_id}')
@@ -863,48 +877,34 @@ def process_scenario(
     if not is_lora_model:
         # 加载普通模型（非 LoRA）
         try:
-            if use_deepspeed and DEEPSPEED_AVAILABLE and torch.cuda.is_available():
-                # 使用 DeepSpeed 推理引擎（使用 tensor parallel，而非 ZeRO-3）
-                print("  使用 DeepSpeed 推理引擎（Tensor Parallel）...")
-                world_size = torch.cuda.device_count()
-                print(f"  可用 GPU 数量: {world_size}")
-                
+            if use_deepspeed and deepspeed_available and torch.cuda.is_available():
+                # DeepSpeed 的 tensor_parallel 需要 MPI 或分布式环境
+                # 对于单机多 GPU，我们使用 device_map="auto" 更简单可靠
+                print("  注意: DeepSpeed tensor_parallel 需要 MPI/分布式环境")
+                print("  回退到使用 device_map='auto' 方式加载（更简单可靠）...")
                 # 选择数据类型：优先使用 bfloat16（如果 GPU 支持），否则使用 float16
                 if torch.cuda.is_bf16_supported():
-                    inference_dtype = torch.bfloat16
+                    dtype = torch.bfloat16
                     dtype_str = "bfloat16"
                 else:
-                    inference_dtype = torch.float16
+                    dtype = torch.float16
                     dtype_str = "float16"
                 print(f"  使用数据类型: {dtype_str}")
                 
-                # 先加载模型配置和结构
-                from transformers import AutoConfig
-                print("  加载模型配置...")
-                config = AutoConfig.from_pretrained(
+                # 使用 device_map="auto" 配合 max_memory，这是最简单可靠的方式
+                max_memory = {i: "20GiB" for i in range(torch.cuda.device_count())}
+                model = AutoModelForCausalLM.from_pretrained(
                     base_model_path,
+                    torch_dtype=dtype,
+                    device_map="auto",
+                    max_memory=max_memory,
                     trust_remote_code=True,
                     local_files_only=True
                 )
-                
-                print("  创建模型结构...")
-                # 创建模型结构（不加载权重到内存）
-                model = AutoModelForCausalLM.from_config(
-                    config,
-                    trust_remote_code=True
-                )
-                
-                print("  使用 DeepSpeed 初始化推理引擎（Tensor Parallel）...")
-                # 使用 DeepSpeed init_inference 进行推理
-                # tensor_parallel 会将模型层分片到多个 GPU 上
-                model = deepspeed.init_inference(
-                    model=model,
-                    dtype=inference_dtype,
-                    replace_with_kernel_inject=True,
-                    tensor_parallel={"tp_size": world_size},
-                    checkpoint=base_model_path  # DeepSpeed 会从这里加载权重
-                )
-                print("  ✓ DeepSpeed 推理引擎加载成功（Tensor Parallel）")
+                print("  ✓ 使用 device_map='auto' 多 GPU 加载成功")
+                # 显示模型在各 GPU 上的分布情况
+                if hasattr(model, 'hf_device_map'):
+                    print(f"  模型设备分布: {model.hf_device_map}")
             elif torch.cuda.is_available():
                 # 选择数据类型：优先使用 bfloat16（如果 GPU 支持），否则使用 float16
                 if torch.cuda.is_bf16_supported():
