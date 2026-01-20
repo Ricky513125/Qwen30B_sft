@@ -891,20 +891,55 @@ def process_scenario(
                     dtype_str = "float16"
                 print(f"  使用数据类型: {dtype_str}")
                 
-                # 使用 device_map="auto" 配合 max_memory，这是最简单可靠的方式
+                # 使用 device_map="auto" 配合 max_memory 和 low_cpu_mem_usage
+                # low_cpu_mem_usage=True 可以避免一次性加载整个 header
                 max_memory = {i: "20GiB" for i in range(torch.cuda.device_count())}
-                model = AutoModelForCausalLM.from_pretrained(
-                    base_model_path,
-                    torch_dtype=dtype,
-                    device_map="auto",
-                    max_memory=max_memory,
-                    trust_remote_code=True,
-                    local_files_only=True
-                )
-                print("  ✓ 使用 device_map='auto' 多 GPU 加载成功")
-                # 显示模型在各 GPU 上的分布情况
-                if hasattr(model, 'hf_device_map'):
-                    print(f"  模型设备分布: {model.hf_device_map}")
+                try:
+                    model = AutoModelForCausalLM.from_pretrained(
+                        base_model_path,
+                        torch_dtype=dtype,
+                        device_map="auto",
+                        max_memory=max_memory,
+                        low_cpu_mem_usage=True,  # 关键：使用低内存模式
+                        trust_remote_code=True,
+                        local_files_only=True
+                    )
+                    print("  ✓ 使用 device_map='auto' 多 GPU 加载成功")
+                    # 显示模型在各 GPU 上的分布情况
+                    if hasattr(model, 'hf_device_map'):
+                        print(f"  模型设备分布: {model.hf_device_map}")
+                except Exception as e:
+                    print(f"  使用 low_cpu_mem_usage 也失败: {e}")
+                    print("  尝试使用 accelerate 库加载...")
+                    # 尝试使用 accelerate 库的 load_checkpoint_and_dispatch
+                    try:
+                        from accelerate import load_checkpoint_and_dispatch, init_empty_weights
+                        from transformers import AutoConfig
+                        
+                        print("  使用 accelerate 库分片加载...")
+                        config = AutoConfig.from_pretrained(
+                            base_model_path,
+                            trust_remote_code=True,
+                            local_files_only=True
+                        )
+                        
+                        # 先创建空模型
+                        with init_empty_weights():
+                            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+                        
+                        # 使用 accelerate 分片加载权重
+                        model = load_checkpoint_and_dispatch(
+                            model,
+                            base_model_path,
+                            device_map="auto",
+                            max_memory=max_memory,
+                            dtype=dtype,
+                            no_split_module_classes=[]  # 让 accelerate 自动决定如何分片
+                        )
+                        print("  ✓ 使用 accelerate 库加载成功")
+                    except Exception as e2:
+                        print(f"  accelerate 加载也失败: {e2}")
+                        raise RuntimeError(f"所有加载方式都失败。请检查模型文件是否损坏，或尝试使用更少的 GPU。最后错误: {e2}")
             elif torch.cuda.is_available():
                 # 选择数据类型：优先使用 bfloat16（如果 GPU 支持），否则使用 float16
                 if torch.cuda.is_bf16_supported():
@@ -925,6 +960,7 @@ def process_scenario(
                         torch_dtype=dtype,
                         device_map="auto",
                         max_memory=max_memory,
+                        low_cpu_mem_usage=True,  # 关键：使用低内存模式，避免 header too large 错误
                         trust_remote_code=True,
                         local_files_only=True
                     )
@@ -940,6 +976,7 @@ def process_scenario(
                             base_model_path,
                             torch_dtype=dtype,
                             device_map="auto",
+                            low_cpu_mem_usage=True,  # 关键：使用低内存模式
                             trust_remote_code=True,
                             local_files_only=True
                         )
@@ -978,13 +1015,14 @@ def process_scenario(
                 
             try:
                 if use_multi_gpu and torch.cuda.is_available():
-                    # 多 GPU 回退：使用 max_memory 限制
+                    # 多 GPU 回退：使用 max_memory 限制和 low_cpu_mem_usage
                     max_memory = {i: "20GiB" for i in range(torch.cuda.device_count())}
                     model = AutoModelForCausalLM.from_pretrained(
                         base_model_path,
                         torch_dtype=fallback_dtype,
                         device_map="auto",
                         max_memory=max_memory,
+                        low_cpu_mem_usage=True,  # 关键：使用低内存模式
                         trust_remote_code=True,
                         local_files_only=True
                     )
@@ -995,6 +1033,7 @@ def process_scenario(
                         base_model_path,
                         torch_dtype=fallback_dtype,
                         device_map="auto",
+                        low_cpu_mem_usage=True,  # 关键：使用低内存模式
                         trust_remote_code=True,
                         local_files_only=True
                     )
