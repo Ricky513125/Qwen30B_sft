@@ -825,9 +825,18 @@ def process_scenario(
             print(f"  基础模型路径: {base_model_name_or_path}")
             
             # 加载基础模型
+            # 选择数据类型：优先使用 bfloat16（如果 GPU 支持），否则使用 float16
+            if torch.cuda.is_available():
+                if torch.cuda.is_bf16_supported():
+                    lora_dtype = torch.bfloat16
+                else:
+                    lora_dtype = torch.float16
+            else:
+                lora_dtype = torch.float32
+            
             base_model = AutoModelForCausalLM.from_pretrained(
                 base_model_name_or_path,
-                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                torch_dtype=lora_dtype,
                 device_map=None,
                 trust_remote_code=True,
                 local_files_only=True
@@ -838,7 +847,7 @@ def process_scenario(
             model = PeftModel.from_pretrained(
                 base_model,
                 checkpoint_dir,
-                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                torch_dtype=lora_dtype,
                 local_files_only=True
             )
             
@@ -855,39 +864,21 @@ def process_scenario(
         # 加载普通模型（非 LoRA）
         try:
             if use_deepspeed and DEEPSPEED_AVAILABLE and torch.cuda.is_available():
-                # 使用 DeepSpeed ZeRO-3 加载模型
-                print("  使用 DeepSpeed ZeRO-3 加载模型...")
-                print(f"  可用 GPU 数量: {torch.cuda.device_count()}")
+                # 使用 DeepSpeed 推理引擎（使用 tensor parallel，而非 ZeRO-3）
+                print("  使用 DeepSpeed 推理引擎（Tensor Parallel）...")
+                world_size = torch.cuda.device_count()
+                print(f"  可用 GPU 数量: {world_size}")
                 
-                # 使用 DeepSpeed 的 init_inference 直接从模型路径加载
-                # 这种方式可以避免 "header too large" 错误
-                ds_config_path = os.path.join(Path(__file__).parent, "ds_inference_config.json")
-                if not os.path.exists(ds_config_path):
-                    print(f"  警告: DeepSpeed 配置文件不存在: {ds_config_path}")
-                    print("  使用默认 DeepSpeed ZeRO-3 配置...")
-                    # 创建临时配置
-                    import tempfile
-                    import json
-                    ds_config = {
-                        "zero_optimization": {
-                            "stage": 3,
-                            "offload_param": {
-                                "device": "cpu",
-                                "pin_memory": True
-                            }
-                        },
-                        "fp16": {
-                            "enabled": True
-                        }
-                    }
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                        json.dump(ds_config, f)
-                        ds_config_path = f.name
+                # 选择数据类型：优先使用 bfloat16（如果 GPU 支持），否则使用 float16
+                if torch.cuda.is_bf16_supported():
+                    inference_dtype = torch.bfloat16
+                    dtype_str = "bfloat16"
+                else:
+                    inference_dtype = torch.float16
+                    dtype_str = "float16"
+                print(f"  使用数据类型: {dtype_str}")
                 
-                print(f"  使用 DeepSpeed 配置: {ds_config_path}")
-                
-                # 使用 DeepSpeed ZeRO-3 加载模型
-                # 方法：先加载模型配置，创建模型结构，然后用 DeepSpeed 包装
+                # 先加载模型配置和结构
                 from transformers import AutoConfig
                 print("  加载模型配置...")
                 config = AutoConfig.from_pretrained(
@@ -903,19 +894,27 @@ def process_scenario(
                     trust_remote_code=True
                 )
                 
-                print("  使用 DeepSpeed ZeRO-3 初始化推理引擎...")
-                # 使用 DeepSpeed 初始化推理引擎
-                # 这会自动处理模型权重的分片加载，避免 "header too large" 错误
+                print("  使用 DeepSpeed 初始化推理引擎（Tensor Parallel）...")
+                # 使用 DeepSpeed init_inference 进行推理
+                # tensor_parallel 会将模型层分片到多个 GPU 上
                 model = deepspeed.init_inference(
                     model=model,
-                    mp_size=torch.cuda.device_count(),
-                    dtype=torch.float16,
+                    dtype=inference_dtype,
                     replace_with_kernel_inject=True,
-                    checkpoint=base_model_path,  # DeepSpeed 会从这里加载权重
-                    config=ds_config_path
+                    tensor_parallel={"tp_size": world_size},
+                    checkpoint=base_model_path  # DeepSpeed 会从这里加载权重
                 )
-                print("  ✓ DeepSpeed ZeRO-3 模型加载成功")
+                print("  ✓ DeepSpeed 推理引擎加载成功（Tensor Parallel）")
             elif torch.cuda.is_available():
+                # 选择数据类型：优先使用 bfloat16（如果 GPU 支持），否则使用 float16
+                if torch.cuda.is_bf16_supported():
+                    dtype = torch.bfloat16
+                    dtype_str = "bfloat16"
+                else:
+                    dtype = torch.float16
+                    dtype_str = "float16"
+                print(f"  使用数据类型: {dtype_str}")
+                
                 if use_multi_gpu:
                     # 多 GPU 模式：使用 device_map="auto" 自动在所有 GPU 上分布模型
                     print("  使用多 GPU 分布式加载...")
@@ -923,7 +922,7 @@ def process_scenario(
                     max_memory = {i: "20GiB" for i in range(torch.cuda.device_count())}
                     model = AutoModelForCausalLM.from_pretrained(
                         base_model_path,
-                        torch_dtype=torch.float16,
+                        torch_dtype=dtype,
                         device_map="auto",
                         max_memory=max_memory,
                         trust_remote_code=True,
@@ -939,7 +938,7 @@ def process_scenario(
                     try:
                         model = AutoModelForCausalLM.from_pretrained(
                             base_model_path,
-                            torch_dtype=torch.float16,
+                            torch_dtype=dtype,
                             device_map="auto",
                             trust_remote_code=True,
                             local_files_only=True
@@ -950,7 +949,7 @@ def process_scenario(
                         # 回退到指定单个设备
                         model = AutoModelForCausalLM.from_pretrained(
                             base_model_path,
-                            torch_dtype=torch.float16,
+                            torch_dtype=dtype,
                             device_map={"": target_device},
                             trust_remote_code=True,
                             local_files_only=True
@@ -968,13 +967,22 @@ def process_scenario(
             print(f"  使用 device_map 加载失败: {e}")
             print("  尝试使用传统方式加载...")
             # 回退到传统方式（MoE 模型可能需要特殊处理）
+            # 选择数据类型：优先使用 bfloat16（如果 GPU 支持），否则使用 float16
+            if torch.cuda.is_available():
+                if torch.cuda.is_bf16_supported():
+                    fallback_dtype = torch.bfloat16
+                else:
+                    fallback_dtype = torch.float16
+            else:
+                fallback_dtype = torch.float32
+                
             try:
                 if use_multi_gpu and torch.cuda.is_available():
                     # 多 GPU 回退：使用 max_memory 限制
                     max_memory = {i: "20GiB" for i in range(torch.cuda.device_count())}
                     model = AutoModelForCausalLM.from_pretrained(
                         base_model_path,
-                        torch_dtype=torch.float16,
+                        torch_dtype=fallback_dtype,
                         device_map="auto",
                         max_memory=max_memory,
                         trust_remote_code=True,
@@ -985,7 +993,7 @@ def process_scenario(
                     # 尝试使用 device_map="auto" 自动分配设备（适合大模型和 MoE 模型）
                     model = AutoModelForCausalLM.from_pretrained(
                         base_model_path,
-                        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                        torch_dtype=fallback_dtype,
                         device_map="auto",
                         trust_remote_code=True,
                         local_files_only=True
@@ -997,7 +1005,7 @@ def process_scenario(
                 # 最简单的加载方式，不指定设备映射
                 model = AutoModelForCausalLM.from_pretrained(
                     base_model_path,
-                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                    torch_dtype=fallback_dtype,
                     trust_remote_code=True,
                     local_files_only=True
                 )
