@@ -82,14 +82,14 @@ def generate_continuations(
     tokenizer,
     messages,
     num_samples=5,
-    max_new_tokens=32768,  # 增加到512，给模型足够空间写完"废话"，后续通过清洗函数截断
+    max_new_tokens=512,  # 增加到512，给模型足够空间写完"废话"，后续通过清洗函数截断
     device=None,
     do_sample=True,
     temperature=0.7,
     top_p=0.9,
     repetition_penalty=1.2,  # 增加重复惩罚
     no_repeat_ngram_size=4,  # 增加n-gram大小
-    max_output_length=32768,  # 输出文本最大字符数
+    max_output_length=512,  # 输出文本最大字符数
     is_japanese_task=False,  # 是否为日语任务
 ):
     # 与训练时保持一致：使用 add_generation_prompt=False，然后手动添加引导符
@@ -123,7 +123,7 @@ def generate_continuations(
         text,
         return_tensors="pt",
         truncation=True,
-        max_length=32768
+        max_length=512
     )
     # 如果指定了 device，将输入移到该设备
     # 对于使用 device_map 或 DeepSpeed 的模型，可以不移动，让模型自动处理
@@ -374,6 +374,36 @@ def log_inference_details(
 
 
 import re
+
+def check_model_files(model_path: str) -> dict:
+    """
+    检查模型目录中的文件类型
+    
+    Returns:
+        dict with keys: 'has_safetensors', 'has_pytorch', 'safetensors_files', 'pytorch_files'
+    """
+    result = {
+        'has_safetensors': False,
+        'has_pytorch': False,
+        'safetensors_files': [],
+        'pytorch_files': []
+    }
+    
+    if not os.path.exists(model_path):
+        return result
+    
+    for file in os.listdir(model_path):
+        if file.endswith('.safetensors'):
+            result['has_safetensors'] = True
+            result['safetensors_files'].append(file)
+        elif file.endswith('.bin') and 'pytorch_model' in file:
+            result['has_pytorch'] = True
+            result['pytorch_files'].append(file)
+    
+    return result
+
+
+
 
 def clean_model_output(text: str, max_length: int = 512) -> str:
     """
@@ -739,6 +769,13 @@ def process_scenario(
     
     # 加载模型
     print("加载模型...")
+    
+    # 检查模型文件类型
+    print(f"检查模型文件: {base_model_path}")
+    model_files = check_model_files(base_model_path)
+    print(f"  发现 safetensors 文件: {len(model_files['safetensors_files'])} 个")
+    print(f"  发现 PyTorch 文件: {len(model_files['pytorch_files'])} 个")
+    
     # 尝试加载 tokenizer（与训练脚本保持一致）
     tokenizer_json_path = os.path.join(checkpoint_dir, 'tokenizer.json')
 
@@ -894,82 +931,108 @@ def process_scenario(
                 # 使用 device_map="auto" 配合 max_memory 和 low_cpu_mem_usage
                 # 如果 safetensors header 太大，尝试使用 PyTorch 格式
                 max_memory = {i: "20GiB" for i in range(torch.cuda.device_count())}
-                try:
-                    # 首先尝试使用 safetensors（默认）
-                    model = AutoModelForCausalLM.from_pretrained(
-                        base_model_path,
-                        torch_dtype=dtype,
-                        device_map="auto",
-                        max_memory=max_memory,
-                        low_cpu_mem_usage=True,  # 关键：使用低内存模式
-                        trust_remote_code=True,
-                        local_files_only=True
-                    )
-                    print("  ✓ 使用 device_map='auto' 多 GPU 加载成功")
-                    # 显示模型在各 GPU 上的分布情况
-                    if hasattr(model, 'hf_device_map'):
-                        print(f"  模型设备分布: {model.hf_device_map}")
-                except Exception as e:
-                    if "header too large" in str(e) or "SafetensorError" in str(e):
-                        print(f"  safetensors header 太大: {e}")
-                        print("  尝试使用 PyTorch 格式（.bin 文件）加载...")
+                
+                # 根据可用文件类型选择加载策略
+                load_success = False
+                last_error = None
+                
+                    # 策略1: 如果有 PyTorch 文件，优先使用（transformers 会自动选择 PyTorch 文件）
+                    if model_files['has_pytorch']:
+                        print("  检测到 PyTorch 格式文件，transformers 将自动使用 PyTorch 格式...")
                         try:
-                            # 强制使用 PyTorch 格式，避免 safetensors header 问题
                             model = AutoModelForCausalLM.from_pretrained(
                                 base_model_path,
                                 torch_dtype=dtype,
                                 device_map="auto",
                                 max_memory=max_memory,
                                 low_cpu_mem_usage=True,
-                                use_safetensors=False,  # 关键：不使用 safetensors，使用 PyTorch 格式
                                 trust_remote_code=True,
                                 local_files_only=True
                             )
                             print("  ✓ 使用 PyTorch 格式加载成功")
                             if hasattr(model, 'hf_device_map'):
                                 print(f"  模型设备分布: {model.hf_device_map}")
-                        except Exception as e_pytorch:
-                            print(f"  PyTorch 格式加载也失败: {e_pytorch}")
-                            print("  尝试使用 accelerate 库加载...")
-                            # 尝试使用 accelerate 库的 load_checkpoint_and_dispatch
-                            try:
-                                from accelerate import load_checkpoint_and_dispatch, init_empty_weights
-                                from transformers import AutoConfig
-                                
-                                print("  使用 accelerate 库分片加载（PyTorch 格式）...")
-                                config = AutoConfig.from_pretrained(
-                                    base_model_path,
-                                    trust_remote_code=True,
-                                    local_files_only=True
-                                )
-                                
-                                # 先创建空模型
-                                with init_empty_weights():
-                                    model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
-                                
-                                # 使用 accelerate 分片加载权重（PyTorch 格式）
-                                model = load_checkpoint_and_dispatch(
-                                    model,
-                                    base_model_path,
-                                    device_map="auto",
-                                    max_memory=max_memory,
-                                    dtype=dtype,
-                                    no_split_module_classes=[]  # 让 accelerate 自动决定如何分片
-                                )
-                                print("  ✓ 使用 accelerate 库加载成功")
-                            except Exception as e2:
-                                print(f"  accelerate 加载也失败: {e2}")
-                                # 提供详细的错误信息和解决建议
-                                error_msg = f"""
-所有加载方式都失败。错误: {e2}
+                            load_success = True
+                        except Exception as e:
+                            last_error = e
+                            print(f"  PyTorch 格式加载失败: {e}")
+                
+                # 策略2: 如果 PyTorch 加载失败或只有 safetensors，尝试 safetensors
+                if not load_success and model_files['has_safetensors']:
+                    print("  尝试使用 safetensors 格式加载...")
+                    try:
+                        model = AutoModelForCausalLM.from_pretrained(
+                            base_model_path,
+                            torch_dtype=dtype,
+                            device_map="auto",
+                            max_memory=max_memory,
+                            low_cpu_mem_usage=True,
+                            trust_remote_code=True,
+                            local_files_only=True
+                        )
+                        print("  ✓ 使用 safetensors 格式加载成功")
+                        if hasattr(model, 'hf_device_map'):
+                            print(f"  模型设备分布: {model.hf_device_map}")
+                        load_success = True
+                    except Exception as e:
+                        last_error = e
+                        if "header too large" in str(e) or "SafetensorError" in str(e):
+                            print(f"  safetensors header 太大: {e}")
+                        else:
+                            print(f"  safetensors 加载失败: {e}")
+                
+                # 策略3: 使用 accelerate 库的分片加载（适用于 header too large 问题）
+                if not load_success:
+                    print("  尝试使用 accelerate 库分片加载...")
+                    try:
+                        from accelerate import load_checkpoint_and_dispatch, init_empty_weights
+                        from transformers import AutoConfig
+                        
+                        print("  使用 accelerate 库分片加载...")
+                        config = AutoConfig.from_pretrained(
+                            base_model_path,
+                            trust_remote_code=True,
+                            local_files_only=True
+                        )
+                        
+                        # 先创建空模型
+                        with init_empty_weights():
+                            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+                        
+                        # 使用 accelerate 分片加载权重
+                        # accelerate 会自动选择可用的格式（优先 PyTorch）
+                        model = load_checkpoint_and_dispatch(
+                            model,
+                            base_model_path,
+                            device_map="auto",
+                            max_memory=max_memory,
+                            dtype=dtype,
+                            no_split_module_classes=[]  # 让 accelerate 自动决定如何分片
+                        )
+                        print("  ✓ 使用 accelerate 库加载成功")
+                        load_success = True
+                    except Exception as e2:
+                        last_error = e2
+                        print(f"  accelerate 加载也失败: {e2}")
+                
+                # 如果所有策略都失败，抛出详细错误
+                if not load_success:
+                    error_msg = f"""
+所有加载方式都失败。最后错误: {last_error}
+
+模型文件检查结果:
+  - Safetensors 文件: {len(model_files['safetensors_files'])} 个
+  - PyTorch 文件: {len(model_files['pytorch_files'])} 个
 
 可能的原因和解决方案：
 1. Safetensors header 太大：这是 Qwen3-30B-A3B 模型的已知问题
    - 解决方案 A: 将 safetensors 转换为 PyTorch 格式
      运行: python -c "from transformers import AutoModel; model = AutoModel.from_pretrained('{base_model_path}', trust_remote_code=True); model.save_pretrained('{base_model_path}_pytorch', safe_serialization=False)"
+     然后使用转换后的路径: {base_model_path}_pytorch
    - 解决方案 B: 更新 safetensors 库到最新版本
      pip install --upgrade safetensors transformers accelerate
    - 解决方案 C: 使用更少的 GPU（减少到 4 张或更少）
+   - 解决方案 D: 使用单 GPU 模式（不使用 --use_multi_gpu）
 
 2. 内存不足：确保有足够的系统内存（建议至少 64GB）
 
@@ -977,9 +1040,7 @@ def process_scenario(
 
 如果问题持续，请联系模型提供者获取 PyTorch 格式的权重文件。
 """
-                                raise RuntimeError(error_msg)
-                    else:
-                        raise
+                    raise RuntimeError(error_msg)
             elif torch.cuda.is_available():
                 # 选择数据类型：优先使用 bfloat16（如果 GPU 支持），否则使用 float16
                 if torch.cuda.is_bf16_supported():
@@ -995,43 +1056,125 @@ def process_scenario(
                     print("  使用多 GPU 分布式加载...")
                     # 计算每个 GPU 的最大内存（可选，让系统自动分配）
                     max_memory = {i: "20GiB" for i in range(torch.cuda.device_count())}
-                    model = AutoModelForCausalLM.from_pretrained(
-                        base_model_path,
-                        torch_dtype=dtype,
-                        device_map="auto",
-                        max_memory=max_memory,
-                        low_cpu_mem_usage=True,  # 关键：使用低内存模式，避免 header too large 错误
-                        trust_remote_code=True,
-                        local_files_only=True
-                    )
-                    print("  ✓ 使用多 GPU 分布式加载成功")
-                    # 显示模型在各 GPU 上的分布情况
-                    if hasattr(model, 'hf_device_map'):
-                        print(f"  模型设备分布: {model.hf_device_map}")
+                    
+                    # 根据可用文件类型选择加载策略
+                    load_success = False
+                    last_error = None
+                    
+                    # 策略1: 如果有 PyTorch 文件，优先使用（transformers 会自动选择 PyTorch 文件）
+                    if model_files['has_pytorch']:
+                        print("  检测到 PyTorch 格式文件，transformers 将自动使用 PyTorch 格式...")
+                        try:
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model_path,
+                                torch_dtype=dtype,
+                                device_map="auto",
+                                max_memory=max_memory,
+                                low_cpu_mem_usage=True,
+                                trust_remote_code=True,
+                                local_files_only=True
+                            )
+                            print("  ✓ 使用 PyTorch 格式多 GPU 加载成功")
+                            if hasattr(model, 'hf_device_map'):
+                                print(f"  模型设备分布: {model.hf_device_map}")
+                            load_success = True
+                        except Exception as e:
+                            last_error = e
+                            print(f"  PyTorch 格式加载失败: {e}")
+                    
+                    # 策略2: 如果 PyTorch 加载失败或只有 safetensors，尝试 safetensors
+                    if not load_success and model_files['has_safetensors']:
+                        print("  尝试使用 safetensors 格式加载...")
+                        try:
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model_path,
+                                torch_dtype=dtype,
+                                device_map="auto",
+                                max_memory=max_memory,
+                                low_cpu_mem_usage=True,
+                                trust_remote_code=True,
+                                local_files_only=True
+                            )
+                            print("  ✓ 使用 safetensors 格式多 GPU 加载成功")
+                            if hasattr(model, 'hf_device_map'):
+                                print(f"  模型设备分布: {model.hf_device_map}")
+                            load_success = True
+                        except Exception as e:
+                            last_error = e
+                            if "header too large" in str(e) or "SafetensorError" in str(e):
+                                print(f"  safetensors header 太大: {e}")
+                            else:
+                                print(f"  safetensors 加载失败: {e}")
+                    
+                    # 如果都失败，抛出错误
+                    if not load_success:
+                        raise RuntimeError(f"多 GPU 加载失败: {last_error}\n请尝试使用单 GPU 模式或转换模型为 PyTorch 格式")
                 else:
                     # 单 GPU 模式：对于 MoE 模型，优先使用 device_map="auto" 自动分配设备
                     # 这样可以更好地处理大模型和 MoE 架构
-                    try:
-                        model = AutoModelForCausalLM.from_pretrained(
-                            base_model_path,
-                            torch_dtype=dtype,
-                            device_map="auto",
-                            low_cpu_mem_usage=True,  # 关键：使用低内存模式
-                            trust_remote_code=True,
-                            local_files_only=True
-                        )
-                        print("  ✓ 使用 device_map='auto' 加载成功")
-                    except Exception as e_auto:
-                        print(f"  device_map='auto' 失败: {e_auto}")
-                        # 回退到指定单个设备
-                        model = AutoModelForCausalLM.from_pretrained(
-                            base_model_path,
-                            torch_dtype=dtype,
-                            device_map={"": target_device},
-                            trust_remote_code=True,
-                            local_files_only=True
-                        )
-                        print("  ✓ 使用指定设备加载成功")
+                    load_success = False
+                    last_error = None
+                    
+                    # 策略1: 如果有 PyTorch 文件，优先使用（transformers 会自动选择 PyTorch 文件）
+                    if model_files['has_pytorch']:
+                        print("  检测到 PyTorch 格式文件，transformers 将自动使用 PyTorch 格式...")
+                        try:
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model_path,
+                                torch_dtype=dtype,
+                                device_map="auto",
+                                low_cpu_mem_usage=True,
+                                trust_remote_code=True,
+                                local_files_only=True
+                            )
+                            print("  ✓ 使用 PyTorch 格式加载成功")
+                            load_success = True
+                        except Exception as e:
+                            last_error = e
+                            print(f"  PyTorch 格式加载失败: {e}")
+                    
+                    # 策略2: 如果 PyTorch 加载失败或只有 safetensors，尝试 safetensors
+                    if not load_success and model_files['has_safetensors']:
+                        print("  尝试使用 safetensors 格式加载...")
+                        try:
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model_path,
+                                torch_dtype=dtype,
+                                device_map="auto",
+                                low_cpu_mem_usage=True,
+                                trust_remote_code=True,
+                                local_files_only=True
+                            )
+                            print("  ✓ 使用 safetensors 格式加载成功")
+                            load_success = True
+                        except Exception as e:
+                            last_error = e
+                            if "header too large" in str(e) or "SafetensorError" in str(e):
+                                print(f"  safetensors header 太大: {e}")
+                            else:
+                                print(f"  safetensors 加载失败: {e}")
+                    
+                    # 策略3: 回退到指定单个设备
+                    if not load_success:
+                        print(f"  回退到指定设备加载: {target_device}")
+                        try:
+                            # transformers 会自动选择可用的格式（优先 PyTorch）
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model_path,
+                                torch_dtype=dtype,
+                                device_map={"": target_device},
+                                trust_remote_code=True,
+                                local_files_only=True
+                            )
+                            print("  ✓ 使用指定设备加载成功")
+                            load_success = True
+                        except Exception as e:
+                            last_error = e
+                            print(f"  指定设备加载也失败: {e}")
+                    
+                    # 如果都失败，抛出错误
+                    if not load_success:
+                        raise RuntimeError(f"单 GPU 加载失败: {last_error}\n请尝试转换模型为 PyTorch 格式")
             else:
                 model = AutoModelForCausalLM.from_pretrained(
                     base_model_path,
@@ -1054,44 +1197,123 @@ def process_scenario(
                 fallback_dtype = torch.float32
                 
             try:
+                load_success = False
+                last_error = None
+                
                 if use_multi_gpu and torch.cuda.is_available():
                     # 多 GPU 回退：使用 max_memory 限制和 low_cpu_mem_usage
                     max_memory = {i: "20GiB" for i in range(torch.cuda.device_count())}
-                    model = AutoModelForCausalLM.from_pretrained(
-                        base_model_path,
-                        torch_dtype=fallback_dtype,
-                        device_map="auto",
-                        max_memory=max_memory,
-                        low_cpu_mem_usage=True,  # 关键：使用低内存模式
-                        trust_remote_code=True,
-                        local_files_only=True
-                    )
-                    print("  ✓ 使用多 GPU 回退方式加载成功")
+                    
+                    # 优先使用 PyTorch 格式（transformers 会自动选择）
+                    if model_files['has_pytorch']:
+                        try:
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model_path,
+                                torch_dtype=fallback_dtype,
+                                device_map="auto",
+                                max_memory=max_memory,
+                                low_cpu_mem_usage=True,
+                                trust_remote_code=True,
+                                local_files_only=True
+                            )
+                            print("  ✓ 使用 PyTorch 格式多 GPU 回退方式加载成功")
+                            load_success = True
+                        except Exception as e:
+                            last_error = e
+                            print(f"  PyTorch 格式多 GPU 回退失败: {e}")
+                    
+                    # 如果 PyTorch 失败，尝试 safetensors
+                    if not load_success and model_files['has_safetensors']:
+                        try:
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model_path,
+                                torch_dtype=fallback_dtype,
+                                device_map="auto",
+                                max_memory=max_memory,
+                                low_cpu_mem_usage=True,
+                                trust_remote_code=True,
+                                local_files_only=True
+                            )
+                            print("  ✓ 使用 safetensors 格式多 GPU 回退方式加载成功")
+                            load_success = True
+                        except Exception as e:
+                            last_error = e
+                            print(f"  safetensors 格式多 GPU 回退失败: {e}")
                 else:
-                    # 尝试使用 device_map="auto" 自动分配设备（适合大模型和 MoE 模型）
-                    model = AutoModelForCausalLM.from_pretrained(
-                        base_model_path,
-                        torch_dtype=fallback_dtype,
-                        device_map="auto",
-                        low_cpu_mem_usage=True,  # 关键：使用低内存模式
-                        trust_remote_code=True,
-                        local_files_only=True
-                    )
-                    print("  ✓ 使用 device_map='auto' 加载成功")
+                    # 单 GPU 回退：尝试使用 device_map="auto" 自动分配设备
+                    if model_files['has_pytorch']:
+                        try:
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model_path,
+                                torch_dtype=fallback_dtype,
+                                device_map="auto",
+                                low_cpu_mem_usage=True,
+                                trust_remote_code=True,
+                                local_files_only=True
+                            )
+                            print("  ✓ 使用 PyTorch 格式 device_map='auto' 加载成功")
+                            load_success = True
+                        except Exception as e:
+                            last_error = e
+                            print(f"  PyTorch 格式 device_map='auto' 失败: {e}")
+                    
+                    # 如果 PyTorch 失败，尝试 safetensors
+                    if not load_success and model_files['has_safetensors']:
+                        try:
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model_path,
+                                torch_dtype=fallback_dtype,
+                                device_map="auto",
+                                low_cpu_mem_usage=True,
+                                trust_remote_code=True,
+                                local_files_only=True
+                            )
+                            print("  ✓ 使用 safetensors 格式 device_map='auto' 加载成功")
+                            load_success = True
+                        except Exception as e:
+                            last_error = e
+                            print(f"  safetensors 格式 device_map='auto' 失败: {e}")
+                
+                # 如果都失败，尝试最简单的加载方式
+                if not load_success:
+                    print("  尝试最简单的加载方式...")
+                    # 最简单的加载方式，不指定设备映射
+                    # transformers 会自动选择可用的格式（优先 PyTorch）
+                    try:
+                        model = AutoModelForCausalLM.from_pretrained(
+                            base_model_path,
+                            torch_dtype=fallback_dtype,
+                            trust_remote_code=True,
+                            local_files_only=True
+                        )
+                        # 手动移动到目标设备（如果指定了单 GPU）
+                        if target_device is not None:
+                            model = model.to(target_device)
+                        print("  ✓ 使用简单方式加载成功")
+                        load_success = True
+                    except Exception as e:
+                        last_error = e
+                        print(f"  简单方式加载也失败: {e}")
+                        raise RuntimeError(f"所有加载方式都失败。最后错误: {last_error}\n请尝试转换模型为 PyTorch 格式")
             except Exception as e2:
-                print(f"  使用 device_map='auto' 也失败: {e2}")
-                print("  尝试最简单的加载方式...")
-                # 最简单的加载方式，不指定设备映射
-                model = AutoModelForCausalLM.from_pretrained(
-                    base_model_path,
-                    torch_dtype=fallback_dtype,
-                    trust_remote_code=True,
-                    local_files_only=True
-                )
-                # 手动移动到目标设备（如果指定了单 GPU）
-                if target_device is not None:
-                    model = model.to(target_device)
-                print("  ✓ 使用简单方式加载成功")
+                # 如果上面的所有尝试都失败，抛出详细错误
+                error_msg = f"""
+所有加载方式都失败。错误: {e2}
+
+模型文件检查结果:
+  - Safetensors 文件: {len(model_files['safetensors_files'])} 个
+  - PyTorch 文件: {len(model_files['pytorch_files'])} 个
+
+建议的解决方案：
+1. 将 safetensors 转换为 PyTorch 格式:
+   python -c "from transformers import AutoModel; model = AutoModel.from_pretrained('{base_model_path}', trust_remote_code=True); model.save_pretrained('{base_model_path}_pytorch', safe_serialization=False)"
+
+2. 更新库版本:
+   pip install --upgrade safetensors transformers accelerate
+
+3. 使用单 GPU 模式（不使用 --use_multi_gpu）
+"""
+                raise RuntimeError(error_msg)
             # 先检查模型状态，再移动到设备
             try:
                 # 验证模型权重是否有效
@@ -1393,9 +1615,9 @@ def main():
                        help='详细日志文件路径（JSON格式，记录每次调用的上下文、输入、输出等。如果未指定，将自动生成）')
     parser.add_argument('--base_model_path', type=str, default=None,
                        help='LoRA 模型的基础模型路径（如果未指定，将尝试自动检测）')
-    parser.add_argument('--max_new_tokens', type=int, default=32768,
+    parser.add_argument('--max_new_tokens', type=int, default=512,
                        help='最大生成token数（默认：512，给模型足够空间写完"废话"，后续通过清洗函数截断）')
-    parser.add_argument('--max_output_length', type=int, default=32768,
+    parser.add_argument('--max_output_length', type=int, default=512,
                        help='输出文本最大字符数（默认：200，用于后处理截断）')
     parser.add_argument('--use_multi_gpu', action='store_true',
                        help='使用多 GPU 分布式加载模型（适用于大模型，会自动在所有可用 GPU 上分布）')
