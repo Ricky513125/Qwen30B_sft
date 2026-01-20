@@ -110,12 +110,18 @@ def generate_continuations(
         import random
         text = text.rstrip() + "\n" + random.choice(japanese_prompts)
 
+    # 对于多 GPU 模型，如果 device 为 None，让模型自动处理设备分配
+    # 否则将输入放到指定设备
     inputs = tokenizer(
         text,
         return_tensors="pt",
         truncation=True,
         max_length=32768
-    ).to(device)
+    )
+    # 如果指定了 device，将输入移到该设备
+    # 对于使用 device_map 的模型，可以不移动，让模型自动处理
+    if device is not None:
+        inputs = {k: v.to(device) for k, v in inputs.items()}
     
     # 确保 input_ids 在有效范围内
     model_vocab_size = model.config.vocab_size
@@ -678,7 +684,8 @@ def process_scenario(
     log_file_path: str = None,
     base_model_path: str = None,
     max_new_tokens: int = 512,  # 默认增加到512
-    max_output_length: int = 200
+    max_output_length: int = 200,
+    use_multi_gpu: bool = False  # 是否使用多 GPU 分布式加载
 ):
     """
     处理单个场景：生成test_leaderboard.json
@@ -748,12 +755,21 @@ def process_scenario(
     
     # 加载模型
     print("  加载模型权重...")
-    # 明确指定使用指定的 GPU
+    # 根据是否使用多 GPU 来决定设备设置
     if torch.cuda.is_available():
-        target_device = torch.device(f'cuda:{gpu_id}')
+        if use_multi_gpu:
+            # 使用所有可用的 GPU
+            num_gpus = torch.cuda.device_count()
+            print(f"  使用多 GPU 模式，可用 GPU 数量: {num_gpus}")
+            print(f"  将使用 GPU: {list(range(num_gpus))}")
+            target_device = None  # device_map="auto" 会自动分配
+        else:
+            # 使用指定的单个 GPU
+            target_device = torch.device(f'cuda:{gpu_id}')
+            print(f"  使用单 GPU 模式，目标设备: {target_device}")
     else:
         target_device = torch.device('cpu')
-    print(f"  目标设备: {target_device}")
+        print(f"  目标设备: {target_device}")
     
     # 检查是否是 LoRA 模型（检查是否存在 adapter_config.json）
     adapter_config_path = os.path.join(checkpoint_dir, 'adapter_config.json')
@@ -821,28 +837,46 @@ def process_scenario(
         # 加载普通模型（非 LoRA）
         try:
             if torch.cuda.is_available():
-                # 对于 MoE 模型，优先使用 device_map="auto" 自动分配设备
-                # 这样可以更好地处理大模型和 MoE 架构
-                try:
+                if use_multi_gpu:
+                    # 多 GPU 模式：使用 device_map="auto" 自动在所有 GPU 上分布模型
+                    print("  使用多 GPU 分布式加载...")
+                    # 计算每个 GPU 的最大内存（可选，让系统自动分配）
+                    max_memory = {i: "20GiB" for i in range(torch.cuda.device_count())}
                     model = AutoModelForCausalLM.from_pretrained(
                         base_model_path,
                         torch_dtype=torch.float16,
                         device_map="auto",
+                        max_memory=max_memory,
                         trust_remote_code=True,
                         local_files_only=True
                     )
-                    print("  ✓ 使用 device_map='auto' 加载成功")
-                except Exception as e_auto:
-                    print(f"  device_map='auto' 失败: {e_auto}")
-                    # 回退到指定单个设备
-                    model = AutoModelForCausalLM.from_pretrained(
-                        base_model_path,
-                        torch_dtype=torch.float16,
-                        device_map={"": target_device},
-                        trust_remote_code=True,
-                        local_files_only=True
-                    )
-                    print("  ✓ 使用指定设备加载成功")
+                    print("  ✓ 使用多 GPU 分布式加载成功")
+                    # 显示模型在各 GPU 上的分布情况
+                    if hasattr(model, 'hf_device_map'):
+                        print(f"  模型设备分布: {model.hf_device_map}")
+                else:
+                    # 单 GPU 模式：对于 MoE 模型，优先使用 device_map="auto" 自动分配设备
+                    # 这样可以更好地处理大模型和 MoE 架构
+                    try:
+                        model = AutoModelForCausalLM.from_pretrained(
+                            base_model_path,
+                            torch_dtype=torch.float16,
+                            device_map="auto",
+                            trust_remote_code=True,
+                            local_files_only=True
+                        )
+                        print("  ✓ 使用 device_map='auto' 加载成功")
+                    except Exception as e_auto:
+                        print(f"  device_map='auto' 失败: {e_auto}")
+                        # 回退到指定单个设备
+                        model = AutoModelForCausalLM.from_pretrained(
+                            base_model_path,
+                            torch_dtype=torch.float16,
+                            device_map={"": target_device},
+                            trust_remote_code=True,
+                            local_files_only=True
+                        )
+                        print("  ✓ 使用指定设备加载成功")
             else:
                 model = AutoModelForCausalLM.from_pretrained(
                     base_model_path,
@@ -856,15 +890,28 @@ def process_scenario(
             print("  尝试使用传统方式加载...")
             # 回退到传统方式（MoE 模型可能需要特殊处理）
             try:
-                # 尝试使用 device_map="auto" 自动分配设备（适合大模型和 MoE 模型）
-                model = AutoModelForCausalLM.from_pretrained(
-                    base_model_path,
-                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                    device_map="auto",
-                    trust_remote_code=True,
-                    local_files_only=True
-                )
-                print("  ✓ 使用 device_map='auto' 加载成功")
+                if use_multi_gpu and torch.cuda.is_available():
+                    # 多 GPU 回退：使用 max_memory 限制
+                    max_memory = {i: "20GiB" for i in range(torch.cuda.device_count())}
+                    model = AutoModelForCausalLM.from_pretrained(
+                        base_model_path,
+                        torch_dtype=torch.float16,
+                        device_map="auto",
+                        max_memory=max_memory,
+                        trust_remote_code=True,
+                        local_files_only=True
+                    )
+                    print("  ✓ 使用多 GPU 回退方式加载成功")
+                else:
+                    # 尝试使用 device_map="auto" 自动分配设备（适合大模型和 MoE 模型）
+                    model = AutoModelForCausalLM.from_pretrained(
+                        base_model_path,
+                        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                        device_map="auto",
+                        trust_remote_code=True,
+                        local_files_only=True
+                    )
+                    print("  ✓ 使用 device_map='auto' 加载成功")
             except Exception as e2:
                 print(f"  使用 device_map='auto' 也失败: {e2}")
                 print("  尝试最简单的加载方式...")
@@ -875,8 +922,9 @@ def process_scenario(
                     trust_remote_code=True,
                     local_files_only=True
                 )
-                # 手动移动到目标设备
-                model = model.to(target_device)
+                # 手动移动到目标设备（如果指定了单 GPU）
+                if target_device is not None:
+                    model = model.to(target_device)
                 print("  ✓ 使用简单方式加载成功")
             # 先检查模型状态，再移动到设备
             try:
@@ -1016,8 +1064,13 @@ def process_scenario(
                             break
                 
                 # 生成continuations
-                # 获取模型设备
-                model_device = next(model.parameters()).device
+                # 获取模型设备（对于多 GPU 模型，使用第一个参数所在的设备）
+                # 如果模型使用 device_map，输入会自动路由到正确的设备
+                try:
+                    model_device = next(model.parameters()).device
+                except StopIteration:
+                    # 如果模型没有参数（不太可能），使用默认设备
+                    model_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
                 continuations = []
                 
                 # 生成 num_samples 个 continuations
@@ -1178,6 +1231,8 @@ def main():
                        help='最大生成token数（默认：512，给模型足够空间写完"废话"，后续通过清洗函数截断）')
     parser.add_argument('--max_output_length', type=int, default=32768,
                        help='输出文本最大字符数（默认：200，用于后处理截断）')
+    parser.add_argument('--use_multi_gpu', action='store_true',
+                       help='使用多 GPU 分布式加载模型（适用于大模型，会自动在所有可用 GPU 上分布）')
     
     args = parser.parse_args()
     
@@ -1209,8 +1264,6 @@ def main():
         args.log_file = os.path.join(log_dir, f"inference_{dataset_name}_{args.config_name}_{timestamp}.json")
     
     # 将 GPU 编号和基础模型路径传递给 process_scenario
-    # 注意：base_model_path 可以通过环境变量或参数传递，但 process_scenario 目前不支持
-    # 如果需要，可以修改 process_scenario 函数签名
     process_scenario(
         scenario_path=args.scenario_path,
         checkpoint_dir=args.checkpoint_dir,
@@ -1222,8 +1275,10 @@ def main():
         output_dir=args.output_dir,
         gpu_id=target_gpu,
         log_file_path=args.log_file,
+        base_model_path=args.base_model_path,
         max_new_tokens=args.max_new_tokens,
-        max_output_length=args.max_output_length
+        max_output_length=args.max_output_length,
+        use_multi_gpu=args.use_multi_gpu
     )
 
 
