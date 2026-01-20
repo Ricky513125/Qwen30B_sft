@@ -1,0 +1,25 @@
+# Core dependencies for Qwen3-30B-A3B-Instruct-2507 training and inference
+
+# PyTorch (adjust version based on your CUDA version)
+# For CUDA 11.8: torch==2.1.0+cu118
+# For CUDA 12.1: torch==2.1.0+cu121
+# For CPU only: torch==2.1.0
+torch>=2.0.0
+
+# Hugging Face Transformers
+transformers>=4.35.0
+
+# PEFT for LoRA model support (optional but recommended)
+peft>=0.6.0
+
+# Progress bar
+tqdm>=4.65.0
+
+# Accelerate for distributed training (optional but recommended)
+accelerate>=0.24.0
+
+# Optional: For better performance with large models
+# bitsandbytes>=0.41.0  # Uncomment if using quantization
+
+# Optional: For evaluation metrics
+# datasets>=2.14.0  # Uncomment if needed for evaluation
