@@ -18,6 +18,9 @@ tqdm>=4.65.0
 # Accelerate for distributed training (optional but recommended)
 accelerate>=0.24.0
 
+# DeepSpeed for ZeRO-3 inference (required for large models)
+deepspeed>=0.12.0
+
 # Optional: For better performance with large models
 # bitsandbytes>=0.41.0  # Uncomment if using quantization
 

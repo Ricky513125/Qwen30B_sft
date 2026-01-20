@@ -23,6 +23,13 @@ except ImportError:
     PEFT_AVAILABLE = False
     print("警告: peft 库未安装，无法加载 LoRA 模型")
 
+try:
+    import deepspeed
+    DEEPSPEED_AVAILABLE = True
+except ImportError:
+    DEEPSPEED_AVAILABLE = False
+    print("警告: deepspeed 库未安装，无法使用 DeepSpeed ZeRO-3")
+
 
 def load_test_leaderboard(test_leaderboard_path: str) -> list:
     """加载 test_leaderboard.json"""
@@ -110,7 +117,7 @@ def generate_continuations(
         import random
         text = text.rstrip() + "\n" + random.choice(japanese_prompts)
 
-    # 对于多 GPU 模型，如果 device 为 None，让模型自动处理设备分配
+    # 对于多 GPU 模型或 DeepSpeed 模型，如果 device 为 None，让模型自动处理设备分配
     # 否则将输入放到指定设备
     inputs = tokenizer(
         text,
@@ -119,9 +126,19 @@ def generate_continuations(
         max_length=32768
     )
     # 如果指定了 device，将输入移到该设备
-    # 对于使用 device_map 的模型，可以不移动，让模型自动处理
+    # 对于使用 device_map 或 DeepSpeed 的模型，可以不移动，让模型自动处理
+    # 但为了兼容性，如果指定了 device，仍然移动输入
     if device is not None:
         inputs = {k: v.to(device) for k, v in inputs.items()}
+    else:
+        # 如果没有指定 device，尝试从模型获取第一个参数所在的设备
+        try:
+            model_device = next(model.parameters()).device
+            inputs = {k: v.to(model_device) for k, v in inputs.items()}
+        except (StopIteration, AttributeError):
+            # 如果无法获取设备，使用默认设备
+            if torch.cuda.is_available():
+                inputs = {k: v.cuda() for k, v in inputs.items()}
     
     # 确保 input_ids 在有效范围内
     model_vocab_size = model.config.vocab_size
@@ -685,7 +702,8 @@ def process_scenario(
     base_model_path: str = None,
     max_new_tokens: int = 512,  # 默认增加到512
     max_output_length: int = 200,
-    use_multi_gpu: bool = False  # 是否使用多 GPU 分布式加载
+    use_multi_gpu: bool = False,  # 是否使用多 GPU 分布式加载
+    use_deepspeed: bool = False  # 是否使用 DeepSpeed ZeRO-3
 ):
     """
     处理单个场景：生成test_leaderboard.json
@@ -836,7 +854,68 @@ def process_scenario(
     if not is_lora_model:
         # 加载普通模型（非 LoRA）
         try:
-            if torch.cuda.is_available():
+            if use_deepspeed and DEEPSPEED_AVAILABLE and torch.cuda.is_available():
+                # 使用 DeepSpeed ZeRO-3 加载模型
+                print("  使用 DeepSpeed ZeRO-3 加载模型...")
+                print(f"  可用 GPU 数量: {torch.cuda.device_count()}")
+                
+                # 使用 DeepSpeed 的 init_inference 直接从模型路径加载
+                # 这种方式可以避免 "header too large" 错误
+                ds_config_path = os.path.join(Path(__file__).parent, "ds_inference_config.json")
+                if not os.path.exists(ds_config_path):
+                    print(f"  警告: DeepSpeed 配置文件不存在: {ds_config_path}")
+                    print("  使用默认 DeepSpeed ZeRO-3 配置...")
+                    # 创建临时配置
+                    import tempfile
+                    import json
+                    ds_config = {
+                        "zero_optimization": {
+                            "stage": 3,
+                            "offload_param": {
+                                "device": "cpu",
+                                "pin_memory": True
+                            }
+                        },
+                        "fp16": {
+                            "enabled": True
+                        }
+                    }
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                        json.dump(ds_config, f)
+                        ds_config_path = f.name
+                
+                print(f"  使用 DeepSpeed 配置: {ds_config_path}")
+                
+                # 使用 DeepSpeed ZeRO-3 加载模型
+                # 方法：先加载模型配置，创建模型结构，然后用 DeepSpeed 包装
+                from transformers import AutoConfig
+                print("  加载模型配置...")
+                config = AutoConfig.from_pretrained(
+                    base_model_path,
+                    trust_remote_code=True,
+                    local_files_only=True
+                )
+                
+                print("  创建模型结构...")
+                # 创建模型结构（不加载权重到内存）
+                model = AutoModelForCausalLM.from_config(
+                    config,
+                    trust_remote_code=True
+                )
+                
+                print("  使用 DeepSpeed ZeRO-3 初始化推理引擎...")
+                # 使用 DeepSpeed 初始化推理引擎
+                # 这会自动处理模型权重的分片加载，避免 "header too large" 错误
+                model = deepspeed.init_inference(
+                    model=model,
+                    mp_size=torch.cuda.device_count(),
+                    dtype=torch.float16,
+                    replace_with_kernel_inject=True,
+                    checkpoint=base_model_path,  # DeepSpeed 会从这里加载权重
+                    config=ds_config_path
+                )
+                print("  ✓ DeepSpeed ZeRO-3 模型加载成功")
+            elif torch.cuda.is_available():
                 if use_multi_gpu:
                     # 多 GPU 模式：使用 device_map="auto" 自动在所有 GPU 上分布模型
                     print("  使用多 GPU 分布式加载...")
@@ -1233,6 +1312,8 @@ def main():
                        help='输出文本最大字符数（默认：200，用于后处理截断）')
     parser.add_argument('--use_multi_gpu', action='store_true',
                        help='使用多 GPU 分布式加载模型（适用于大模型，会自动在所有可用 GPU 上分布）')
+    parser.add_argument('--use_deepspeed', action='store_true',
+                       help='使用 DeepSpeed ZeRO-3 加载模型（适用于超大模型，可以解决 "header too large" 错误）')
     
     args = parser.parse_args()
     
@@ -1278,7 +1359,8 @@ def main():
         base_model_path=args.base_model_path,
         max_new_tokens=args.max_new_tokens,
         max_output_length=args.max_output_length,
-        use_multi_gpu=args.use_multi_gpu
+        use_multi_gpu=args.use_multi_gpu,
+        use_deepspeed=args.use_deepspeed
     )
 
 
