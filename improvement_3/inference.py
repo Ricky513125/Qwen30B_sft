@@ -936,26 +936,26 @@ def process_scenario(
                 load_success = False
                 last_error = None
                 
-                    # 策略1: 如果有 PyTorch 文件，优先使用（transformers 会自动选择 PyTorch 文件）
-                    if model_files['has_pytorch']:
-                        print("  检测到 PyTorch 格式文件，transformers 将自动使用 PyTorch 格式...")
-                        try:
-                            model = AutoModelForCausalLM.from_pretrained(
-                                base_model_path,
-                                torch_dtype=dtype,
-                                device_map="auto",
-                                max_memory=max_memory,
-                                low_cpu_mem_usage=True,
-                                trust_remote_code=True,
-                                local_files_only=True
-                            )
-                            print("  ✓ 使用 PyTorch 格式加载成功")
-                            if hasattr(model, 'hf_device_map'):
-                                print(f"  模型设备分布: {model.hf_device_map}")
-                            load_success = True
-                        except Exception as e:
-                            last_error = e
-                            print(f"  PyTorch 格式加载失败: {e}")
+                # 策略1: 如果有 PyTorch 文件，优先使用（transformers 会自动选择 PyTorch 文件）
+                if model_files['has_pytorch']:
+                    print("  检测到 PyTorch 格式文件，transformers 将自动使用 PyTorch 格式...")
+                    try:
+                        model = AutoModelForCausalLM.from_pretrained(
+                            base_model_path,
+                            torch_dtype=dtype,
+                            device_map="auto",
+                            max_memory=max_memory,
+                            low_cpu_mem_usage=True,
+                            trust_remote_code=True,
+                            local_files_only=True
+                        )
+                        print("  ✓ 使用 PyTorch 格式加载成功")
+                        if hasattr(model, 'hf_device_map'):
+                            print(f"  模型设备分布: {model.hf_device_map}")
+                        load_success = True
+                    except Exception as e:
+                        last_error = e
+                        print(f"  PyTorch 格式加载失败: {e}")
                 
                 # 策略2: 如果 PyTorch 加载失败或只有 safetensors，尝试 safetensors
                 if not load_success and model_files['has_safetensors']:
