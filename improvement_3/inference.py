@@ -892,9 +892,10 @@ def process_scenario(
                 print(f"  使用数据类型: {dtype_str}")
                 
                 # 使用 device_map="auto" 配合 max_memory 和 low_cpu_mem_usage
-                # low_cpu_mem_usage=True 可以避免一次性加载整个 header
+                # 如果 safetensors header 太大，尝试使用 PyTorch 格式
                 max_memory = {i: "20GiB" for i in range(torch.cuda.device_count())}
                 try:
+                    # 首先尝试使用 safetensors（默认）
                     model = AutoModelForCausalLM.from_pretrained(
                         base_model_path,
                         torch_dtype=dtype,
@@ -909,37 +910,76 @@ def process_scenario(
                     if hasattr(model, 'hf_device_map'):
                         print(f"  模型设备分布: {model.hf_device_map}")
                 except Exception as e:
-                    print(f"  使用 low_cpu_mem_usage 也失败: {e}")
-                    print("  尝试使用 accelerate 库加载...")
-                    # 尝试使用 accelerate 库的 load_checkpoint_and_dispatch
-                    try:
-                        from accelerate import load_checkpoint_and_dispatch, init_empty_weights
-                        from transformers import AutoConfig
-                        
-                        print("  使用 accelerate 库分片加载...")
-                        config = AutoConfig.from_pretrained(
-                            base_model_path,
-                            trust_remote_code=True,
-                            local_files_only=True
-                        )
-                        
-                        # 先创建空模型
-                        with init_empty_weights():
-                            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
-                        
-                        # 使用 accelerate 分片加载权重
-                        model = load_checkpoint_and_dispatch(
-                            model,
-                            base_model_path,
-                            device_map="auto",
-                            max_memory=max_memory,
-                            dtype=dtype,
-                            no_split_module_classes=[]  # 让 accelerate 自动决定如何分片
-                        )
-                        print("  ✓ 使用 accelerate 库加载成功")
-                    except Exception as e2:
-                        print(f"  accelerate 加载也失败: {e2}")
-                        raise RuntimeError(f"所有加载方式都失败。请检查模型文件是否损坏，或尝试使用更少的 GPU。最后错误: {e2}")
+                    if "header too large" in str(e) or "SafetensorError" in str(e):
+                        print(f"  safetensors header 太大: {e}")
+                        print("  尝试使用 PyTorch 格式（.bin 文件）加载...")
+                        try:
+                            # 强制使用 PyTorch 格式，避免 safetensors header 问题
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model_path,
+                                torch_dtype=dtype,
+                                device_map="auto",
+                                max_memory=max_memory,
+                                low_cpu_mem_usage=True,
+                                use_safetensors=False,  # 关键：不使用 safetensors，使用 PyTorch 格式
+                                trust_remote_code=True,
+                                local_files_only=True
+                            )
+                            print("  ✓ 使用 PyTorch 格式加载成功")
+                            if hasattr(model, 'hf_device_map'):
+                                print(f"  模型设备分布: {model.hf_device_map}")
+                        except Exception as e_pytorch:
+                            print(f"  PyTorch 格式加载也失败: {e_pytorch}")
+                            print("  尝试使用 accelerate 库加载...")
+                            # 尝试使用 accelerate 库的 load_checkpoint_and_dispatch
+                            try:
+                                from accelerate import load_checkpoint_and_dispatch, init_empty_weights
+                                from transformers import AutoConfig
+                                
+                                print("  使用 accelerate 库分片加载（PyTorch 格式）...")
+                                config = AutoConfig.from_pretrained(
+                                    base_model_path,
+                                    trust_remote_code=True,
+                                    local_files_only=True
+                                )
+                                
+                                # 先创建空模型
+                                with init_empty_weights():
+                                    model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+                                
+                                # 使用 accelerate 分片加载权重（PyTorch 格式）
+                                model = load_checkpoint_and_dispatch(
+                                    model,
+                                    base_model_path,
+                                    device_map="auto",
+                                    max_memory=max_memory,
+                                    dtype=dtype,
+                                    no_split_module_classes=[]  # 让 accelerate 自动决定如何分片
+                                )
+                                print("  ✓ 使用 accelerate 库加载成功")
+                            except Exception as e2:
+                                print(f"  accelerate 加载也失败: {e2}")
+                                # 提供详细的错误信息和解决建议
+                                error_msg = f"""
+所有加载方式都失败。错误: {e2}
+
+可能的原因和解决方案：
+1. Safetensors header 太大：这是 Qwen3-30B-A3B 模型的已知问题
+   - 解决方案 A: 将 safetensors 转换为 PyTorch 格式
+     运行: python -c "from transformers import AutoModel; model = AutoModel.from_pretrained('{base_model_path}', trust_remote_code=True); model.save_pretrained('{base_model_path}_pytorch', safe_serialization=False)"
+   - 解决方案 B: 更新 safetensors 库到最新版本
+     pip install --upgrade safetensors transformers accelerate
+   - 解决方案 C: 使用更少的 GPU（减少到 4 张或更少）
+
+2. 内存不足：确保有足够的系统内存（建议至少 64GB）
+
+3. 模型文件损坏：检查模型文件完整性
+
+如果问题持续，请联系模型提供者获取 PyTorch 格式的权重文件。
+"""
+                                raise RuntimeError(error_msg)
+                    else:
+                        raise
             elif torch.cuda.is_available():
                 # 选择数据类型：优先使用 bfloat16（如果 GPU 支持），否则使用 float16
                 if torch.cuda.is_bf16_supported():
