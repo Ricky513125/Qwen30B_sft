@@ -59,7 +59,7 @@ improvement_3/
 
 ## 快速开始
 
-### 0. 多GPU训练说明（Qwen3-30B模型）
+### 0. 多GPU训练和推理说明（Qwen3-30B模型）
 
 对于Qwen3-30B这样的大模型，推荐使用8张GPU进行训练和推理：
 
@@ -68,14 +68,23 @@ improvement_3/
 - 或使用 `--gpu 0,1,2,3,4,5,6,7` 指定8张GPU
 - 模型会自动使用 `device_map="auto"` 进行模型并行，并使用DDP进行数据并行
 
-**推理时：**
+**推理时（两种方式）：**
+
+**方式1: vLLM加速（推荐，速度最快）**
+- 单卡运行一个vLLM实例，8张卡同时跑8个进程
+- 每个进程处理1/8的数据（使用 `--data_shard_id` 参数）
+- 使用 `run_inference_vllm_8gpu.sh` 脚本一键启动
+- 速度提升：相比标准方式快 **5-10倍**
+
+**方式2: 标准transformers多GPU**
 - 使用 `--use_multi_gpu` 参数启用多GPU推理
 - 模型会自动分布到所有可用GPU上
 
 **注意事项：**
 - 确保有足够的GPU内存（每张GPU至少20GB）
+- vLLM需要安装：`pip install vllm`
 - 多GPU训练会自动使用分布式数据并行（DDP）
-- 模型权重会自动分片到多个GPU上
+- 使用vLLM时，每个进程会生成独立的分片文件，需要最后合并
 
 ### 1. 配置消融实验
 
@@ -189,6 +198,35 @@ python improvement_3/inference.py \
 ```
 
 **8张GPU推理（推荐用于Qwen3-30B模型）：**
+
+**方式1: 使用vLLM加速（强烈推荐，速度最快）**
+```bash
+# 使用提供的启动脚本，自动启动8个进程
+bash improvement_3/run_inference_vllm_8gpu.sh
+
+# 或者手动启动单个GPU进程（例如GPU 0，处理1/8数据）
+CUDA_VISIBLE_DEVICES=0 python improvement_3/inference.py \
+    --checkpoint_dir /mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507 \
+    --scenario_path /mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue \
+    --config_name profile_and_history_and_context \
+    --use_profile \
+    --use_history \
+    --use_context \
+    --gpu 0 \
+    --num_samples 5 \
+    --use_vllm \
+    --vllm_tensor_parallel_size 1 \
+    --data_shard_id 0 \
+    --num_shards 8 \
+    --output_dir improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm
+
+# 合并8个分片的结果
+python improvement_3/merge_shards.py \
+    --output_dir improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm \
+    --num_shards 8
+```
+
+**方式2: 使用标准transformers（多GPU模型并行）**
 ```bash
 python improvement_3/inference.py \
     --checkpoint_dir /mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507 \

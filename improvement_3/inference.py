@@ -32,6 +32,13 @@ except ImportError:
     DEEPSPEED_AVAILABLE = False
     print("警告: deepspeed 库未安装，无法使用 DeepSpeed ZeRO-3")
 
+try:
+    from vllm import LLM, SamplingParams
+    VLLM_AVAILABLE = True
+except ImportError:
+    VLLM_AVAILABLE = False
+    print("警告: vLLM 库未安装，无法使用 vLLM 加速推理")
+
 
 @contextmanager
 def timeout_handler(seconds):
@@ -116,7 +123,47 @@ def generate_continuations(
     is_japanese_task=False,  # 是否为日语任务
     max_input_length=4096,  # 输入最大长度，默认2048（可以根据模型调整）
     use_batch_generation=True,  # 是否使用批处理生成（一次生成多个）
+    vllm_engine=None,  # vLLM引擎（如果使用vLLM）
 ):
+    # 如果使用vLLM，使用不同的生成方式
+    if vllm_engine is not None:
+        # vLLM模式：直接使用prompt生成
+        text = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=False
+        )
+        generation_suffix = "<|im_start|>user\n"
+        text = text.strip() + generation_suffix
+        
+        # 如果是日语任务，添加引导词
+        if is_japanese_task:
+            import random
+            japanese_prompts = ["回答：", "返答：", "応答："]
+            text = text.rstrip() + "\n" + random.choice(japanese_prompts)
+        
+        # 使用vLLM生成
+        sampling_params = SamplingParams(
+            temperature=temperature if do_sample else 0.0,
+            top_p=top_p if do_sample else 1.0,
+            max_tokens=max_new_tokens,
+            repetition_penalty=repetition_penalty,
+        )
+        
+        # 生成num_samples个结果
+        prompts = [text] * num_samples
+        outputs = vllm_engine.generate(prompts, sampling_params)
+        
+        # 提取生成的文本
+        results = []
+        for output in outputs:
+            generated_text = output.outputs[0].text
+            cleaned_text = clean_model_output(generated_text, max_length=max_output_length)
+            results.append(cleaned_text if cleaned_text else "")
+        
+        return results if results else [""]
+    
+    # 标准transformers模式
     # 与训练时保持一致：使用 add_generation_prompt=False，然后手动添加引导符
     # 训练时的逻辑：full_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
     #                generation_suffix = "<|im_start|>user\n"
@@ -836,7 +883,12 @@ def process_scenario(
     use_multi_gpu: bool = False,  # 是否使用多 GPU 分布式加载
     use_deepspeed: bool = False,  # 是否使用 DeepSpeed ZeRO-3
     batch_size: int = 1,  # 批处理大小
-    disable_batch_generation: bool = False  # 是否禁用批处理生成
+    disable_batch_generation: bool = False,  # 是否禁用批处理生成
+    use_vllm: bool = False,  # 是否使用vLLM
+    vllm_tensor_parallel_size: int = 1,  # vLLM tensor并行大小
+    vllm_max_model_len: int = None,  # vLLM最大模型长度
+    data_shard_id: int = None,  # 数据分片ID
+    num_shards: int = 8  # 数据分片总数
 ):
     """
     处理单个场景：生成test_leaderboard.json
@@ -854,7 +906,8 @@ def process_scenario(
     print(f"\n处理场景: {scenario_path}")
     print(f"模型: {checkpoint_dir}")
     print(f"配置: profile={use_profile}, history={use_history}, context={use_context}")
-    base_model_path = "/mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507"
+    if base_model_path is None:
+        base_model_path = "/mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507"
     # 加载测试数据
     test_leaderboard_path = os.path.join(scenario_path, 'test_leaderboard.json')
     if not os.path.exists(test_leaderboard_path):
@@ -864,55 +917,109 @@ def process_scenario(
     test_data = load_test_leaderboard(test_leaderboard_path)
     print(f"测试样本数: {len(test_data)}")
     
+    # 数据分片（如果指定了data_shard_id）
+    if data_shard_id is not None:
+        num_shards = num_shards if 'num_shards' in locals() else 8
+        shard_size = len(test_data) // num_shards
+        start_idx = data_shard_id * shard_size
+        if data_shard_id == num_shards - 1:
+            # 最后一个分片包含剩余的所有数据
+            end_idx = len(test_data)
+        else:
+            end_idx = start_idx + shard_size
+        test_data = test_data[start_idx:end_idx]
+        print(f"数据分片 {data_shard_id}/{num_shards}: 处理样本 {start_idx} 到 {end_idx} (共 {len(test_data)} 个样本)")
+    
     # 加载训练数据（用于获取用户信息和历史）
     train_path = os.path.join(scenario_path, 'train.json')
     train_data = load_train_data(train_path) if os.path.exists(train_path) else []
     all_train_samples = extract_training_samples(train_data) if train_data else []
     print(f"训练样本数: {len(all_train_samples)}")
     
-    # 加载模型
-    print("加载模型...")
+    # 如果使用vLLM，使用不同的加载方式
+    vllm_engine = None
+    if use_vllm and VLLM_AVAILABLE:
+        print("使用 vLLM 加速推理...")
+        # 设置CUDA可见设备（单卡）
+        if gpu_id is not None:
+            os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+            print(f"vLLM 将使用 GPU {gpu_id} (映射为 cuda:0)")
+        
+        # 加载vLLM引擎
+        vllm_kwargs = {
+            "model": base_model_path,
+            "tensor_parallel_size": vllm_tensor_parallel_size,
+            "trust_remote_code": True,
+            "dtype": "bfloat16" if torch.cuda.is_bf16_supported() else "float16",
+        }
+        
+        if vllm_max_model_len:
+            vllm_kwargs["max_model_len"] = vllm_max_model_len
+        
+        print(f"初始化 vLLM 引擎...")
+        vllm_engine = LLM(**vllm_kwargs)
+        print("✓ vLLM 引擎加载成功")
+        
+        # vLLM模式下，不需要加载tokenizer（vLLM内部会处理）
+        # 但为了兼容性，仍然加载tokenizer用于prompt构建
+        tokenizer = AutoTokenizer.from_pretrained(
+            base_model_path,
+            trust_remote_code=True,
+            local_files_only=True
+        )
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        
+        model = None  # vLLM模式下不使用transformers模型
+    elif use_vllm and not VLLM_AVAILABLE:
+        print("警告: vLLM 未安装，回退到标准 transformers 模式")
+        vllm_engine = None
     
-    # 检查模型文件类型
-    print(f"检查模型文件: {base_model_path}")
-    model_files = check_model_files(base_model_path)
-    print(f"  发现 safetensors 文件: {len(model_files['safetensors_files'])} 个")
-    print(f"  发现 PyTorch 文件: {len(model_files['pytorch_files'])} 个")
+    # 加载模型（如果不是vLLM模式）
+    if vllm_engine is None:
+        print("加载模型...")
+        
+        # 检查模型文件类型
+        print(f"检查模型文件: {base_model_path}")
+        model_files = check_model_files(base_model_path)
+        print(f"  发现 safetensors 文件: {len(model_files['safetensors_files'])} 个")
+        print(f"  发现 PyTorch 文件: {len(model_files['pytorch_files'])} 个")
+        
+        # 尝试加载 tokenizer（与训练脚本保持一致）
+        tokenizer_json_path = os.path.join(checkpoint_dir, 'tokenizer.json')
+
+        print("加载 tokenizer（必须与模型 checkpoint 完全一致）")
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            base_model_path,
+            # checkpoint_dir,
+            use_fast=False,          # 强烈建议
+            trust_remote_code=True,
+            local_files_only=True
+        )
+
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        print("✓ Tokenizer 加载成功")
+        print(f"  vocab_size: {tokenizer.vocab_size}")
+        print(f"  pad_token_id: {tokenizer.pad_token_id}")
+        print(f"  eos_token_id: {tokenizer.eos_token_id}")
+
+
+
+
     
-    # 尝试加载 tokenizer（与训练脚本保持一致）
-    tokenizer_json_path = os.path.join(checkpoint_dir, 'tokenizer.json')
-
-    print("加载 tokenizer（必须与模型 checkpoint 完全一致）")
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        base_model_path,
-        # checkpoint_dir,
-        use_fast=False,          # 强烈建议
-        trust_remote_code=True,
-        local_files_only=True
-    )
-
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
-    print("✓ Tokenizer 加载成功")
-    print(f"  vocab_size: {tokenizer.vocab_size}")
-    print(f"  pad_token_id: {tokenizer.pad_token_id}")
-    print(f"  eos_token_id: {tokenizer.eos_token_id}")
-
-
-
-
-    
-    # 验证 tokenizer 配置
-    vocab_size = len(tokenizer)
-    print(f"  Tokenizer 词汇表大小: {vocab_size}")
-    print(f"  pad_token_id: {tokenizer.pad_token_id}")
-    print(f"  eos_token_id: {tokenizer.eos_token_id}")
-    print(f"  bos_token_id: {tokenizer.bos_token_id}")
-    
-    # 加载模型
-    print("  加载模型权重...")
+    # 验证 tokenizer 配置（仅非vLLM模式）
+    if vllm_engine is None:
+        vocab_size = len(tokenizer)
+        print(f"  Tokenizer 词汇表大小: {vocab_size}")
+        print(f"  pad_token_id: {tokenizer.pad_token_id}")
+        print(f"  eos_token_id: {tokenizer.eos_token_id}")
+        print(f"  bos_token_id: {tokenizer.bos_token_id}")
+        
+        # 加载模型
+        print("  加载模型权重...")
     # 根据是否使用多 GPU 或 DeepSpeed 来决定设备设置
     # DeepSpeed 会自动使用所有 GPU，所以也应该被视为多 GPU 模式
     # 检查 DeepSpeed 是否可用（在函数内部检查，确保正确）
@@ -1441,38 +1548,31 @@ def process_scenario(
                 else:
                     raise
     
-    model.eval()
-    # 使用torch.inference_mode()加速推理（PyTorch 1.9+）
-    if hasattr(torch, 'inference_mode'):
-        # inference_mode比no_grad更快
-        pass
-    print("  模型权重加载完成")
-    
-    # 验证模型词汇表大小
-    # model_vocab_size = model.config.vocab_size
-    # print(f"  模型词汇表大小: {model_vocab_size}")
-    # if vocab_size != model_vocab_size:
-    #     print(f"  警告: Tokenizer 和模型的词汇表大小不匹配！")
-    
-    # print("模型加载完成")
-
-    model_vocab_size = model.config.vocab_size
-    tokenizer_vocab_size = tokenizer.vocab_size
-
-    if model_vocab_size != tokenizer_vocab_size:
-        print(f"警告: tokenizer vocab ({tokenizer_vocab_size}) != model vocab ({model_vocab_size})")
-        print("这是正常的，因为 Qwen3 模型的词汇表大小可能大于 tokenizer 的词汇表大小")
-        print("模型会自动处理这种情况，只要 tokenizer 的词汇表是模型词汇表的子集即可")
+        model.eval()
+        # 使用torch.inference_mode()加速推理（PyTorch 1.9+）
+        if hasattr(torch, 'inference_mode'):
+            # inference_mode比no_grad更快
+            pass
+        print("  模型权重加载完成")
         
-        # 验证 tokenizer 的词汇表是否是模型词汇表的子集
-        if tokenizer_vocab_size > model_vocab_size:
-            raise RuntimeError(
-                f"FATAL: tokenizer vocab ({tokenizer_vocab_size}) > model vocab ({model_vocab_size})"
-            )
+        # 验证模型词汇表大小
+        model_vocab_size = model.config.vocab_size
+        tokenizer_vocab_size = tokenizer.vocab_size
+
+        if model_vocab_size != tokenizer_vocab_size:
+            print(f"警告: tokenizer vocab ({tokenizer_vocab_size}) != model vocab ({model_vocab_size})")
+            print("这是正常的，因为 Qwen3 模型的词汇表大小可能大于 tokenizer 的词汇表大小")
+            print("模型会自动处理这种情况，只要 tokenizer 的词汇表是模型词汇表的子集即可")
+            
+            # 验证 tokenizer 的词汇表是否是模型词汇表的子集
+            if tokenizer_vocab_size > model_vocab_size:
+                raise RuntimeError(
+                    f"FATAL: tokenizer vocab ({tokenizer_vocab_size}) > model vocab ({model_vocab_size})"
+                )
+            else:
+                print(f"✓ Tokenizer 词汇表 ({tokenizer_vocab_size}) 是模型词汇表 ({model_vocab_size}) 的子集，可以继续")
         else:
-            print(f"✓ Tokenizer 词汇表 ({tokenizer_vocab_size}) 是模型词汇表 ({model_vocab_size}) 的子集，可以继续")
-    else:
-        print("✓ Tokenizer 和模型的词汇表大小匹配")
+            print("✓ Tokenizer 和模型的词汇表大小匹配")
 
     
     # 获取任务描述（从第一个测试样本中提取，如果有）
@@ -1565,13 +1665,16 @@ def process_scenario(
                             break
                 
                 # 生成continuations
-                # 获取模型设备（对于多 GPU 模型，使用第一个参数所在的设备）
-                # 如果模型使用 device_map，输入会自动路由到正确的设备
-                try:
-                    model_device = next(model.parameters()).device
-                except StopIteration:
-                    # 如果模型没有参数（不太可能），使用默认设备
-                    model_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+                if vllm_engine is not None:
+                    # vLLM模式
+                    model_device = None  # vLLM自动处理设备
+                else:
+                    # 标准模式：获取模型设备
+                    try:
+                        model_device = next(model.parameters()).device
+                    except StopIteration:
+                        # 如果模型没有参数（不太可能），使用默认设备
+                        model_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
                 continuations = []
                 
                 # 生成 num_samples 个 continuations（使用批处理加速）
@@ -1596,7 +1699,8 @@ def process_scenario(
                                 no_repeat_ngram_size=4,
                                 max_output_length=max_output_length,
                                 is_japanese_task=is_japanese_task,
-                                use_batch_generation=not disable_batch_generation  # 根据参数决定
+                                use_batch_generation=not disable_batch_generation,  # 根据参数决定
+                                vllm_engine=vllm_engine  # 传递vLLM引擎
                             )
                     else:
                         # Windows系统，不使用超时
@@ -1613,8 +1717,9 @@ def process_scenario(
                             repetition_penalty=1.2,
                             no_repeat_ngram_size=4,
                             max_output_length=max_output_length,
-                                is_japanese_task=is_japanese_task,
-                                use_batch_generation=not disable_batch_generation  # 根据参数决定
+                            is_japanese_task=is_japanese_task,
+                            use_batch_generation=not disable_batch_generation,  # 根据参数决定
+                            vllm_engine=vllm_engine  # 传递vLLM引擎
                         )
                     
                     if result and len(result) > 0:
@@ -1644,7 +1749,8 @@ def process_scenario(
                                     no_repeat_ngram_size=4,
                                     max_output_length=max_output_length,
                                     is_japanese_task=is_japanese_task,
-                                    use_batch_generation=False
+                                    use_batch_generation=False,
+                                    vllm_engine=vllm_engine
                                 )
                                 if result and len(result) > 0:
                                     continuations.extend(result)
@@ -1734,7 +1840,11 @@ def process_scenario(
         os.makedirs(output_dir, exist_ok=True)
         print(f"使用本地目录: {output_dir}")
     
-    output_path = os.path.join(output_dir, 'test_leaderboard.json')
+    # 如果使用了数据分片，输出文件名包含分片ID
+    if data_shard_id is not None:
+        output_path = os.path.join(output_dir, f'test_leaderboard_shard_{data_shard_id}.json')
+    else:
+        output_path = os.path.join(output_dir, 'test_leaderboard.json')
     
     # 保存结果（只保留test_leaderboard.json，保持原有结构）
     with open(output_path, 'w', encoding='utf-8') as f:
@@ -1782,6 +1892,16 @@ def main():
                        help='批处理大小（默认：1，如果内存充足可以增加以加速）')
     parser.add_argument('--disable_batch_generation', action='store_true',
                        help='禁用批处理生成（如果遇到内存问题）')
+    parser.add_argument('--use_vllm', action='store_true',
+                       help='使用 vLLM 加速推理（推荐，速度更快）')
+    parser.add_argument('--vllm_tensor_parallel_size', type=int, default=1,
+                       help='vLLM tensor并行大小（默认：1，单卡）')
+    parser.add_argument('--vllm_max_model_len', type=int, default=None,
+                       help='vLLM最大模型长度（默认：自动检测）')
+    parser.add_argument('--data_shard_id', type=int, default=None,
+                       help='数据分片ID（0-7，用于8卡并行，每个进程处理1/8数据）')
+    parser.add_argument('--num_shards', type=int, default=8,
+                       help='数据分片总数（默认：8）')
     
     args = parser.parse_args()
     
@@ -1830,7 +1950,12 @@ def main():
         use_multi_gpu=args.use_multi_gpu,
         use_deepspeed=args.use_deepspeed,
         batch_size=args.batch_size,
-        disable_batch_generation=args.disable_batch_generation
+        disable_batch_generation=args.disable_batch_generation,
+        use_vllm=args.use_vllm,
+        vllm_tensor_parallel_size=args.vllm_tensor_parallel_size,
+        vllm_max_model_len=args.vllm_max_model_len,
+        data_shard_id=args.data_shard_id,
+        num_shards=args.num_shards
     )
 
 
