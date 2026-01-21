@@ -66,6 +66,8 @@ def add_history_to_samples(train_samples, all_samples):
 
 
 class AblationTrainerWithEarlyStopping(AblationTrainer):
+    def __init__(self, *args, use_multi_gpu=False, **kwargs):
+        super().__init__(*args, use_multi_gpu=use_multi_gpu, **kwargs)
     """带早停功能的训练器，支持context消融"""
     """带早停功能的训练器"""
     
@@ -142,6 +144,10 @@ class AblationTrainerWithEarlyStopping(AblationTrainer):
             print(f"警告: 学习率 {learning_rate} 可能过小，训练可能很慢")
         print(f"使用学习率: {learning_rate}")
         
+        # 检测是否使用多GPU
+        num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        use_ddp = num_gpus > 1
+        
         # 训练参数
         training_args = TrainingArguments(
             output_dir=self.output_dir,
@@ -168,7 +174,11 @@ class AblationTrainerWithEarlyStopping(AblationTrainer):
             max_grad_norm=0.5,  # 更严格的梯度裁剪，防止 NaN（从 1.0 降低到 0.5）
             report_to="none",
             ddp_find_unused_parameters=False,
+            ddp_backend="nccl" if use_ddp else None,  # 多GPU时使用NCCL后端
         )
+        
+        if use_ddp:
+            print(f"检测到 {num_gpus} 张GPU，将使用分布式数据并行（DDP）训练")
         
         # 自定义 Trainer（复用父类的损失计算，并添加详细日志）
         class CustomTrainer(Trainer):
@@ -599,8 +609,10 @@ def main():
                        help='消融实验配置')
     parser.add_argument('--val_ratio', type=float, default=0.1,
                        help='验证集比例')
-    parser.add_argument('--gpu', type=int, default=1,
-                       help='使用的GPU编号（默认：1）')
+    parser.add_argument('--gpu', type=str, default="0",
+                       help='使用的GPU编号，可以是单个GPU（如"0"）或多个GPU（如"0,1,2,3,4,5,6,7"），默认：0')
+    parser.add_argument('--use_multi_gpu', action='store_true',
+                       help='使用多GPU训练（自动检测所有可用GPU）')
     parser.add_argument('--max_epochs', type=int, default=20,
                        help='最大训练轮次（默认：20）')
     parser.add_argument('--early_stopping_patience', type=int, default=3,
@@ -615,24 +627,36 @@ def main():
     args = parser.parse_args()
     
     # 设置使用的GPU
-    physical_gpu_id = args.gpu
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(physical_gpu_id)
+    if args.use_multi_gpu:
+        # 自动使用所有可用GPU
+        num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        if num_gpus == 0:
+            print("警告: 未检测到GPU，将使用CPU")
+            gpu_ids = ""
+        else:
+            gpu_ids = ",".join([str(i) for i in range(num_gpus)])
+            print(f"自动检测到 {num_gpus} 张GPU，将使用所有GPU")
+    else:
+        # 使用指定的GPU
+        gpu_ids = args.gpu
+        num_gpus = len(gpu_ids.split(",")) if gpu_ids else 1
+    
+    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_ids
     print(f"=" * 60)
     print(f"GPU 设置:")
-    print(f"  物理 GPU ID: {physical_gpu_id}")
+    print(f"  GPU IDs: {gpu_ids}")
     print(f"  CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
-    print(f"  说明: 物理 GPU {physical_gpu_id} 将被映射为逻辑 GPU 0")
+    print(f"  将使用 {num_gpus} 张GPU")
     print(f"=" * 60)
     
     # 验证GPU是否可用
     if torch.cuda.is_available():
-        print(f"CUDA 可用，可见 GPU 数量: {torch.cuda.device_count()}")
-        print(f"当前逻辑设备: cuda:{torch.cuda.current_device()} (对应物理 GPU {physical_gpu_id})")
-        # 显示 GPU 信息
-        gpu_name = torch.cuda.get_device_name(0)
-        gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        print(f"GPU 名称: {gpu_name}")
-        print(f"GPU 总内存: {gpu_memory:.2f} GB")
+        visible_gpu_count = torch.cuda.device_count()
+        print(f"CUDA 可用，可见 GPU 数量: {visible_gpu_count}")
+        for i in range(visible_gpu_count):
+            gpu_name = torch.cuda.get_device_name(i)
+            gpu_memory = torch.cuda.get_device_properties(i).total_memory / 1024**3
+            print(f"  GPU {i}: {gpu_name}, 内存: {gpu_memory:.2f} GB")
     else:
         print("警告: CUDA 不可用，将使用 CPU")
     
@@ -726,7 +750,8 @@ def main():
         use_profile=use_profile,
         use_history=use_history,
         use_context=use_context,
-        log_file_path=log_file_path
+        log_file_path=log_file_path,
+        use_multi_gpu=args.use_multi_gpu or num_gpus > 1
     )
     
     # 开始训练（带早停）

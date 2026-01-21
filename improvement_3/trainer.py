@@ -233,7 +233,8 @@ class AblationTrainer:
     """消融实验主控类"""
     
     def __init__(self, model_path: str, output_dir: str, config: Dict[str, Any], 
-                 use_profile: bool = True, use_history: bool = True, use_context: bool = True, log_file_path: Optional[str] = None):
+                 use_profile: bool = True, use_history: bool = True, use_context: bool = True, 
+                 log_file_path: Optional[str] = None, use_multi_gpu: bool = False):
         self.model_path = model_path
         self.output_dir = output_dir
         self.config = config
@@ -241,6 +242,7 @@ class AblationTrainer:
         self.use_history = use_history
         self.use_context = use_context
         self.log_file_path = log_file_path
+        self.use_multi_gpu = use_multi_gpu
 
         # 1. 加载 Tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
@@ -248,12 +250,31 @@ class AblationTrainer:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         
         # 2. 加载模型
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_path, 
-            torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
-            trust_remote_code=True
-        ).to(self.device)
+        num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        
+        if use_multi_gpu and num_gpus > 1:
+            # 多GPU模式：使用device_map="auto"进行模型并行
+            print(f"使用多GPU模式加载模型（{num_gpus} 张GPU）...")
+            max_memory = {i: "20GiB" for i in range(num_gpus)}
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
+                device_map="auto",
+                max_memory=max_memory,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True
+            )
+            print(f"模型已分布到 {num_gpus} 张GPU上")
+            if hasattr(self.model, 'hf_device_map'):
+                print(f"模型设备分布: {self.model.hf_device_map}")
+        else:
+            # 单GPU模式
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_path, 
+                torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
+                trust_remote_code=True
+            ).to(self.device)
         
         if hasattr(self.model, 'gradient_checkpointing_enable'):
             self.model.gradient_checkpointing_enable()
@@ -267,6 +288,10 @@ class AblationTrainer:
             use_profile=self.use_profile, use_history=self.use_history, use_context=self.use_context
         )
 
+        # 检测是否使用多GPU
+        num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        use_ddp = num_gpus > 1
+
         training_args = TrainingArguments(
             output_dir=self.output_dir,
             num_train_epochs=train_config.get('num_epochs', 3),
@@ -278,8 +303,12 @@ class AblationTrainer:
             bf16=torch.cuda.is_bf16_supported(),
             fp16=not torch.cuda.is_bf16_supported(),
             report_to="none",
-            remove_unused_columns=False
+            remove_unused_columns=False,
+            ddp_backend="nccl" if use_ddp else None,  # 多GPU时使用NCCL后端
         )
+        
+        if use_ddp:
+            print(f"检测到 {num_gpus} 张GPU，将使用分布式数据并行（DDP）训练")
 
         trainer = CustomTrainer(
             model=self.model,

@@ -73,8 +73,10 @@ def main():
                        help='消融实验配置')
     parser.add_argument('--val_ratio', type=float, default=0.1,
                        help='验证集比例')
-    parser.add_argument('--gpu', type=int, default=1,
-                       help='使用的GPU编号（默认：1）')
+    parser.add_argument('--gpu', type=str, default="0",
+                       help='使用的GPU编号，可以是单个GPU（如"0"）或多个GPU（如"0,1,2,3,4,5,6,7"），默认：0')
+    parser.add_argument('--use_multi_gpu', action='store_true',
+                       help='使用多GPU训练（自动检测所有可用GPU）')
     parser.add_argument('--output_dir', type=str, default=None,
                        help='模型输出目录（覆盖配置文件中的设置）')
     parser.add_argument('--log_file', type=str, default=None,
@@ -83,14 +85,32 @@ def main():
     args = parser.parse_args()
     
     # 设置使用的GPU
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
-    print(f"使用 GPU: {args.gpu}")
+    if args.use_multi_gpu:
+        # 自动使用所有可用GPU
+        num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        if num_gpus == 0:
+            print("警告: 未检测到GPU，将使用CPU")
+            gpu_ids = ""
+        else:
+            gpu_ids = ",".join([str(i) for i in range(num_gpus)])
+            print(f"自动检测到 {num_gpus} 张GPU，将使用所有GPU")
+    else:
+        # 使用指定的GPU
+        gpu_ids = args.gpu
+        num_gpus = len(gpu_ids.split(",")) if gpu_ids else 1
+    
+    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_ids
+    print(f"使用 GPU: {gpu_ids}")
     print(f"CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
     
     # 验证GPU是否可用
     if torch.cuda.is_available():
-        print(f"CUDA 可用，GPU 数量: {torch.cuda.device_count()}")
-        print(f"当前设备: {torch.cuda.current_device()}")
+        visible_gpu_count = torch.cuda.device_count()
+        print(f"CUDA 可用，可见 GPU 数量: {visible_gpu_count}")
+        for i in range(visible_gpu_count):
+            gpu_name = torch.cuda.get_device_name(i)
+            gpu_memory = torch.cuda.get_device_properties(i).total_memory / 1024**3
+            print(f"  GPU {i}: {gpu_name}, 内存: {gpu_memory:.2f} GB")
     else:
         print("警告: CUDA 不可用，将使用 CPU")
     
@@ -179,6 +199,7 @@ def main():
     
     # 创建训练器
     model_path = model_config['path']
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     trainer = AblationTrainer(
         model_path=model_path,
         output_dir=output_dir,
@@ -186,7 +207,8 @@ def main():
         use_profile=use_profile,
         use_history=use_history,
         use_context=use_context,
-        log_file_path=log_file_path
+        log_file_path=log_file_path,
+        use_multi_gpu=args.use_multi_gpu or num_gpus > 1
     )
     
     # 开始训练

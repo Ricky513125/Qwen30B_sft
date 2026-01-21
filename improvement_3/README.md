@@ -59,6 +59,24 @@ improvement_3/
 
 ## 快速开始
 
+### 0. 多GPU训练说明（Qwen3-30B模型）
+
+对于Qwen3-30B这样的大模型，推荐使用8张GPU进行训练和推理：
+
+**训练时：**
+- 使用 `--use_multi_gpu` 参数自动启用多GPU训练
+- 或使用 `--gpu 0,1,2,3,4,5,6,7` 指定8张GPU
+- 模型会自动使用 `device_map="auto"` 进行模型并行，并使用DDP进行数据并行
+
+**推理时：**
+- 使用 `--use_multi_gpu` 参数启用多GPU推理
+- 模型会自动分布到所有可用GPU上
+
+**注意事项：**
+- 确保有足够的GPU内存（每张GPU至少20GB）
+- 多GPU训练会自动使用分布式数据并行（DDP）
+- 模型权重会自动分片到多个GPU上
+
 ### 1. 配置消融实验
 
 编辑 `config.json` 或 `config_realpersonachat.json`，选择消融配置：
@@ -87,16 +105,28 @@ improvement_3/
 
 #### 基础训练（不带早停）
 
+**单GPU训练：**
 ```bash
 python ablation/improvement_3/train.py \
     --config ablation/improvement_3/config.json \
     --ablation_config profile_and_history_and_context \
-    --gpu 1 \
+    --gpu 0 \
+    --val_ratio 0.1
+```
+
+**8张GPU训练（推荐用于Qwen3-30B模型）：**
+```bash
+python ablation/improvement_3/train.py \
+    --config ablation/improvement_3/config.json \
+    --ablation_config profile_and_history_and_context \
+    --gpu 0,1,2,3,4,5,6,7 \
+    --use_multi_gpu \
     --val_ratio 0.1
 ```
 
 #### 带早停的训练（推荐）
 
+**单GPU训练：**
 ```bash
 python ablation/improvement_3/train_with_early_stopping.py \
     --config ablation/improvement_3/config.json \
@@ -105,12 +135,39 @@ python ablation/improvement_3/train_with_early_stopping.py \
     --val_ratio 0.1 \
     --max_epochs 20 \
     --early_stopping_patience 3
+```
 
+**8张GPU训练（推荐用于Qwen3-30B模型）：**
+```bash
+python ablation/improvement_3/train_with_early_stopping.py \
+    --config ablation/improvement_3/config.json \
+    --ablation_config profile_and_history_and_context \
+    --gpu 0,1,2,3,4,5,6,7 \
+    --use_multi_gpu \
+    --val_ratio 0.1 \
+    --max_epochs 20 \
+    --early_stopping_patience 3 \
+    --output_dir /mnt/parallel/checkpoints/Qwen3-30B_profile_and_history_and_context
+```
 
-    python ablation/improvement_3/train_with_early_stopping.py \
+**或者使用自动检测所有GPU：**
+```bash
+python ablation/improvement_3/train_with_early_stopping.py \
+    --config ablation/improvement_3/config.json \
+    --ablation_config profile_and_history_and_context \
+    --use_multi_gpu \
+    --val_ratio 0.1 \
+    --max_epochs 20 \
+    --early_stopping_patience 3
+```
+
+**其他示例：**
+```bash
+python ablation/improvement_3/train_with_early_stopping.py \
     --config ablation/improvement_3/config.json \
     --ablation_config profile_and_context \
-    --gpu 1 \
+    --gpu 0,1,2,3,4,5,6,7 \
+    --use_multi_gpu \
     --val_ratio 0.1 \
     --max_epochs 20 \
     --early_stopping_patience 3 \
@@ -119,17 +176,32 @@ python ablation/improvement_3/train_with_early_stopping.py \
 
 ### 3. 推理生成
 
+**单GPU推理：**
 ```bash
---- 基线模型
+# 基线模型
 python improvement_3/inference.py \
     --checkpoint_dir /mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507 \
     --scenario_path /mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue \
     --config_name profile_only \
     --use_profile \
-    --gpu 1 \
+    --gpu 0 \
     --num_samples 5
+```
 
+**8张GPU推理（推荐用于Qwen3-30B模型）：**
+```bash
+python improvement_3/inference.py \
+    --checkpoint_dir /mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507 \
+    --scenario_path /mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue \
+    --config_name profile_and_history_and_context \
+    --use_profile \
+    --use_history \
+    --use_context \
+    --use_multi_gpu \
+    --num_samples 5
+```
 
+--output_dir
 python ablation/improvement_3/inference.py \
     --checkpoint_dir /path/to/checkpoint \
     --scenario_path /path/to/scenario \

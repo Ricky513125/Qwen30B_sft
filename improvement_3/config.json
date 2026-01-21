@@ -1,8 +1,8 @@
 {
   "model": {
-    "name": "Qwen3-8B",
+    "name": "Qwen3-30B",
     "path": "/mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507",
-    "hf_model_name": "Qwen/Qwen3-8B",
+    "hf_model_name": "Qwen/Qwen3-30B-A3B-Instruct",
     "checkpoint_dir": "/mnt/parallel/checkpoints"
   },
   "data": {
