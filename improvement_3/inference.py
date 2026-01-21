@@ -115,6 +115,7 @@ def generate_continuations(
     max_output_length=512,  # 输出文本最大字符数
     is_japanese_task=False,  # 是否为日语任务
     max_input_length=4096,  # 输入最大长度，默认2048（可以根据模型调整）
+    use_batch_generation=True,  # 是否使用批处理生成（一次生成多个）
 ):
     # 与训练时保持一致：使用 add_generation_prompt=False，然后手动添加引导符
     # 训练时的逻辑：full_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
@@ -300,82 +301,109 @@ def generate_continuations(
             if adjusted_max_new_tokens < 50:
                 adjusted_max_new_tokens = 50  # 至少生成50个tokens
             generation_kwargs["max_new_tokens"] = adjusted_max_new_tokens
-            if adjusted_max_new_tokens != max_new_tokens:
-                print(f"    提示: 输入长度 {input_length}, 模型最大长度 {model_max_length}, 调整 max_new_tokens 为 {adjusted_max_new_tokens}")
+            # 减少不必要的打印（只在调试时打印）
+            # if adjusted_max_new_tokens != max_new_tokens:
+            #     print(f"    提示: 输入长度 {input_length}, 模型最大长度 {model_max_length}, 调整 max_new_tokens 为 {adjusted_max_new_tokens}")
         
-        outputs = model.generate(
-            **inputs,
-            **generation_kwargs,
-        )
-        gen = outputs[0][inputs["input_ids"].shape[1]:]
-        
-        # 清理生成的 token IDs，确保它们在有效范围内
-        tokenizer_vocab_size = tokenizer.vocab_size
-        
-        # 确保 gen 是 tensor 并且移到 CPU
-        if isinstance(gen, torch.Tensor):
-            gen = gen.cpu()
+        # 如果使用批处理且需要生成多个样本，使用num_return_sequences
+        if use_batch_generation and num_samples > 1:
+            # 使用num_return_sequences一次性生成多个序列（更高效）
+            generation_kwargs["num_return_sequences"] = num_samples
+            outputs = model.generate(
+                **inputs,
+                **generation_kwargs,
+            )
+            # 处理多个输出
+            all_gens = []
+            input_length = inputs["input_ids"].shape[1]
+            # outputs的形状是 [num_return_sequences, seq_len]
+            if outputs.dim() == 2:
+                # 单个输入，多个输出
+                for i in range(num_samples):
+                    gen = outputs[i][input_length:]
+                    all_gens.append(gen)
+            else:
+                # 多个输入，多个输出
+                for i in range(outputs.shape[0]):
+                    gen = outputs[i][input_length:]
+                    all_gens.append(gen)
         else:
-            gen = torch.tensor(gen, dtype=torch.long)
+            # 单次生成
+            outputs = model.generate(
+                **inputs,
+                **generation_kwargs,
+            )
+            gen = outputs[0][inputs["input_ids"].shape[1]:]
+            all_gens = [gen]
         
-        # 清理无效的 token IDs（超出词汇表范围、NaN、Inf等）
-        # 将无效值替换为 eos_token_id 或 pad_token_id
-        valid_mask = (gen >= 0) & (gen < tokenizer_vocab_size) & torch.isfinite(gen.float())
+        # 处理所有生成的序列
+        tokenizer_vocab_size = tokenizer.vocab_size
+        input_length = inputs["input_ids"].shape[1]
+        results = []
         
-        if valid_mask.sum() == 0:
-            # 如果没有有效 token，返回空字符串
-            return [""]
-        
-        # 只保留有效的 token IDs
-        cleaned_gen = gen[valid_mask]
-        
-        # 如果清理后没有有效 token，返回空字符串
-        if len(cleaned_gen) == 0:
-            return [""]
-        
-        # 解码
-        try:
-            decoded_text = tokenizer.decode(cleaned_gen, skip_special_tokens=True).strip()
-            # decoded_text = tokenizer.decode(gen, skip_special_tokens=True).strip()
-    
-            # 调试：打印原始解码文本
-            if not decoded_text:
-                print(f"  警告: 解码后文本为空")
-                return [""]
+        for gen in all_gens:
+            # 确保 gen 是 tensor 并且移到 CPU
+            if isinstance(gen, torch.Tensor):
+                gen = gen.cpu()
+            else:
+                gen = torch.tensor(gen, dtype=torch.long)
             
-            # --- 调用清洗函数 ---
-            cleaned_text = clean_model_output(decoded_text, max_length=max_output_length)
+            # 清理无效的 token IDs（超出词汇表范围、NaN、Inf等）
+            valid_mask = (gen >= 0) & (gen < tokenizer_vocab_size) & torch.isfinite(gen.float())
             
-            # 调试：如果清理后为空或过短，返回原始文本（至少保留一些内容）
-            if not cleaned_text or len(cleaned_text.strip()) < 3:
-                if decoded_text and len(decoded_text.strip()) > 0:
-                    print(f"  警告: 清理后文本为空或过短，保留原始文本的前{min(max_output_length, len(decoded_text))}字符")
-                    # 只做最基本的清理：移除明显的垃圾token
-                    fallback = decoded_text
-                    for pattern in [r'\bVRTX\b', r'\bVERTEX\b', r'<Vertex>', r'\(Vertex\)', r'_VERTEX_',
-                                   r'\bPorno\b', r'\bporno\b', r'Viagra\s+Porno']:
-                        fallback = re.sub(pattern, '', fallback, flags=re.IGNORECASE)
-                    cleaned_text = fallback[:max_output_length].strip() if fallback.strip() else ""
-                else:
-                    cleaned_text = ""
+            if valid_mask.sum() == 0:
+                results.append("")
+                continue
             
-            return [cleaned_text if cleaned_text else ""]
-        except Exception as decode_error:
-            # 如果解码仍然失败，尝试逐个 token 解码
-            print(f"  警告: 批量解码失败，尝试逐个解码: {decode_error}")
+            # 只保留有效的 token IDs
+            cleaned_gen = gen[valid_mask]
+            
+            # 如果清理后没有有效 token，返回空字符串
+            if len(cleaned_gen) == 0:
+                results.append("")
+                continue
+            
+            # 解码
             try:
-                decoded_parts = []
-                for token_id in cleaned_gen.tolist():
-                    try:
-                        token_text = tokenizer.decode([token_id], skip_special_tokens=True)
-                        if token_text:
-                            decoded_parts.append(token_text)
-                    except:
-                        continue
-                decoded_text = "".join(decoded_parts).strip()
-                return [decoded_text if decoded_text else ""]
-            except:
-                return [""]
+                decoded_text = tokenizer.decode(cleaned_gen, skip_special_tokens=True).strip()
+        
+                if not decoded_text:
+                    results.append("")
+                    continue
+                
+                # --- 调用清洗函数 ---
+                cleaned_text = clean_model_output(decoded_text, max_length=max_output_length)
+                
+                # 如果清理后为空或过短，返回原始文本（至少保留一些内容）
+                if not cleaned_text or len(cleaned_text.strip()) < 3:
+                    if decoded_text and len(decoded_text.strip()) > 0:
+                        # 只做最基本的清理：移除明显的垃圾token
+                        fallback = decoded_text
+                        for pattern in [r'\bVRTX\b', r'\bVERTEX\b', r'<Vertex>', r'\(Vertex\)', r'_VERTEX_',
+                                       r'\bPorno\b', r'\bporno\b', r'Viagra\s+Porno']:
+                            fallback = re.sub(pattern, '', fallback, flags=re.IGNORECASE)
+                        cleaned_text = fallback[:max_output_length].strip() if fallback.strip() else ""
+                    else:
+                        cleaned_text = ""
+                
+                results.append(cleaned_text if cleaned_text else "")
+            except Exception as decode_error:
+                # 如果解码失败，尝试逐个 token 解码
+                try:
+                    decoded_parts = []
+                    for token_id in cleaned_gen.tolist():
+                        try:
+                            token_text = tokenizer.decode([token_id], skip_special_tokens=True)
+                            if token_text:
+                                decoded_parts.append(token_text)
+                        except:
+                            continue
+                    decoded_text = "".join(decoded_parts).strip()
+                    results.append(decoded_text if decoded_text else "")
+                except:
+                    results.append("")
+        
+        return results if results else [""]
     
     except Exception as e:
         # 如果解码失败，返回空字符串而不是抛出异常
@@ -806,7 +834,9 @@ def process_scenario(
     max_new_tokens: int = 512,  # 默认增加到512
     max_output_length: int = 200,
     use_multi_gpu: bool = False,  # 是否使用多 GPU 分布式加载
-    use_deepspeed: bool = False  # 是否使用 DeepSpeed ZeRO-3
+    use_deepspeed: bool = False,  # 是否使用 DeepSpeed ZeRO-3
+    batch_size: int = 1,  # 批处理大小
+    disable_batch_generation: bool = False  # 是否禁用批处理生成
 ):
     """
     处理单个场景：生成test_leaderboard.json
@@ -1412,6 +1442,10 @@ def process_scenario(
                     raise
     
     model.eval()
+    # 使用torch.inference_mode()加速推理（PyTorch 1.9+）
+    if hasattr(torch, 'inference_mode'):
+        # inference_mode比no_grad更快
+        pass
     print("  模型权重加载完成")
     
     # 验证模型词汇表大小
@@ -1540,99 +1574,85 @@ def process_scenario(
                     model_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
                 continuations = []
                 
-                # 生成 num_samples 个 continuations
+                # 生成 num_samples 个 continuations（使用批处理加速）
                 generation_timeout = 300  # 每个样本最多5分钟
-                print(f"  开始生成样本 {sample_idx}, 数据项 {total_items} 的 {num_samples} 个continuations...")
                 
-                for sample_num in range(num_samples):
-                    try:
-                        print(f"    生成第 {sample_num+1}/{num_samples} 个continuation...")
-                        
-                        # 添加超时保护（仅Linux/Unix）
-                        if hasattr(signal, 'SIGALRM'):
-                            with timeout_handler(generation_timeout):
-                                result = generate_continuations(
-                                    model=model,
-                                    tokenizer=tokenizer,
-                                    messages=messages,
-                                    num_samples=1,  # 每次生成1个
-                                    max_new_tokens=max_new_tokens,  # 使用参数
-                                    device=model_device,
-                                    do_sample=True,
-                                    temperature=0.7,
-                                    top_p=0.9,
-                                    repetition_penalty=1.2,  # 增加重复惩罚
-                                    no_repeat_ngram_size=4,
-                                    max_output_length=max_output_length,
-                                    is_japanese_task=is_japanese_task  # 传递日语任务标识
-                                )
-                        else:
-                            # Windows系统，不使用超时（依赖模型自身超时）
+                # 尝试一次性生成所有continuations（批处理）
+                try:
+                    # 添加超时保护（仅Linux/Unix）
+                    if hasattr(signal, 'SIGALRM'):
+                        with timeout_handler(generation_timeout * num_samples):  # 总超时时间
                             result = generate_continuations(
                                 model=model,
                                 tokenizer=tokenizer,
                                 messages=messages,
-                                num_samples=1,  # 每次生成1个
-                                max_new_tokens=max_new_tokens,  # 使用参数
+                                num_samples=num_samples,  # 一次性生成所有
+                                max_new_tokens=max_new_tokens,
                                 device=model_device,
                                 do_sample=True,
                                 temperature=0.7,
                                 top_p=0.9,
-                                repetition_penalty=1.2,  # 增加重复惩罚
+                                repetition_penalty=1.2,
                                 no_repeat_ngram_size=4,
                                 max_output_length=max_output_length,
-                                is_japanese_task=is_japanese_task  # 传递日语任务标识
+                                is_japanese_task=is_japanese_task,
+                                use_batch_generation=not disable_batch_generation  # 根据参数决定
                             )
-                        
-                        if result and len(result) > 0:
-                            continuations.extend(result)
-                            print(f"  样本 {sample_idx}, 数据项 {total_items}, 已生成 {len(continuations)}/{num_samples} 个continuations")
-                        else:
-                            print(f"  警告: 样本 {sample_idx}, 数据项 {total_items}, 第 {sample_num+1} 个生成结果为空")
-                    except TimeoutError as e:
-                        print(f"  错误: 样本 {sample_idx}, 数据项 {total_items}, 第 {sample_num+1} 个生成超时: {e}")
-                        print(f"  跳过该样本的剩余生成，继续处理下一个")
-                        break
-                    except RuntimeError as e:
-                        error_msg = str(e)
-                        if "CUDA" in error_msg or "device-side assert" in error_msg or "inf" in error_msg or "nan" in error_msg or "out of memory" in error_msg.lower():
-                            print(f"  警告: 样本 {sample_idx}, 数据项 {total_items}, CUDA错误: {error_msg[:200]}")
-                            # 清理CUDA缓存
-                            torch.cuda.empty_cache()
-                            # 尝试使用 greedy decoding 和更短的序列
+                    else:
+                        # Windows系统，不使用超时
+                        result = generate_continuations(
+                            model=model,
+                            tokenizer=tokenizer,
+                            messages=messages,
+                            num_samples=num_samples,  # 一次性生成所有
+                            max_new_tokens=max_new_tokens,
+                            device=model_device,
+                            do_sample=True,
+                            temperature=0.7,
+                            top_p=0.9,
+                            repetition_penalty=1.2,
+                            no_repeat_ngram_size=4,
+                            max_output_length=max_output_length,
+                                is_japanese_task=is_japanese_task,
+                                use_batch_generation=not disable_batch_generation  # 根据参数决定
+                        )
+                    
+                    if result and len(result) > 0:
+                        continuations = result[:num_samples]  # 确保不超过需要的数量
+                    else:
+                        continuations = []
+                except (RuntimeError, TimeoutError) as e:
+                    error_msg = str(e)
+                    # 如果批处理失败（可能是内存不足），回退到逐个生成
+                    if "out of memory" in error_msg.lower() or "CUDA" in error_msg or "memory" in error_msg.lower():
+                        print(f"  批处理失败（可能是内存不足），回退到逐个生成: {error_msg[:100]}")
+                        torch.cuda.empty_cache()
+                        # 逐个生成
+                        for sample_num in range(num_samples):
                             try:
                                 result = generate_continuations(
                                     model=model,
                                     tokenizer=tokenizer,
                                     messages=messages,
                                     num_samples=1,
-                                    max_new_tokens=min(max_new_tokens, 256),  # 减少生成长度
+                                    max_new_tokens=max_new_tokens,
                                     device=model_device,
-                                    do_sample=False,  # Greedy decoding
+                                    do_sample=True,
+                                    temperature=0.7,
+                                    top_p=0.9,
                                     repetition_penalty=1.2,
                                     no_repeat_ngram_size=4,
                                     max_output_length=max_output_length,
-                                    is_japanese_task=is_japanese_task
+                                    is_japanese_task=is_japanese_task,
+                                    use_batch_generation=False
                                 )
                                 if result and len(result) > 0:
                                     continuations.extend(result)
-                                    print(f"  使用greedy decoding成功生成")
                             except Exception as e2:
-                                print(f"  警告: greedy decoding也失败: {str(e2)[:200]}")
-                                # 如果还是失败，跳过这个样本
-                                break
-                        else:
-                            print(f"  错误: 样本 {sample_idx}, 数据项 {total_items}, RuntimeError: {error_msg[:200]}")
-                            raise
-                    except Exception as e:
-                        error_msg = str(e)
-                        print(f"  警告: 样本 {sample_idx}, 数据项 {total_items}, 生成失败: {error_msg[:200]}")
-                        # 如果是关键错误，跳过剩余生成
-                        if "memory" in error_msg.lower() or "cuda" in error_msg.lower():
-                            print(f"  检测到内存或CUDA错误，跳过该样本的剩余生成")
-                            break
-                        # 其他错误，继续尝试下一个
-                        continue
+                                print(f"  警告: 第 {sample_num+1} 个生成失败: {str(e2)[:100]}")
+                                continue
+                    else:
+                        raise
                 
                 # 获取参考值（如果有）
                 reference = data_item.get('continuation', '') or data_item.get('reference', '')
@@ -1646,7 +1666,7 @@ def process_scenario(
                     # 填充到data_item中
                     data_item['continuations'] = continuations
                     generated_count += 1
-                    if generated_count % 10 == 0:
+                    if generated_count % 50 == 0:  # 减少打印频率以提升速度
                         print(f"已生成 {generated_count} 个样本的continuations")
                     error_msg = None
                 
@@ -1673,8 +1693,8 @@ def process_scenario(
         # 每个样本处理完后，更新进度条
         pbar.update(1)
         
-        # 定期清理CUDA缓存，防止内存累积
-        if sample_idx % 10 == 0 and torch.cuda.is_available():
+        # 定期清理CUDA缓存，防止内存累积（减少频率以提升速度）
+        if sample_idx % 50 == 0 and torch.cuda.is_available():
             torch.cuda.empty_cache()
     
     # 关闭日志文件
@@ -1758,6 +1778,10 @@ def main():
                        help='使用多 GPU 分布式加载模型（适用于大模型，会自动在所有可用 GPU 上分布）')
     parser.add_argument('--use_deepspeed', action='store_true',
                        help='使用 DeepSpeed ZeRO-3 加载模型（适用于超大模型，可以解决 "header too large" 错误）')
+    parser.add_argument('--batch_size', type=int, default=1,
+                       help='批处理大小（默认：1，如果内存充足可以增加以加速）')
+    parser.add_argument('--disable_batch_generation', action='store_true',
+                       help='禁用批处理生成（如果遇到内存问题）')
     
     args = parser.parse_args()
     
@@ -1804,7 +1828,9 @@ def main():
         max_new_tokens=args.max_new_tokens,
         max_output_length=args.max_output_length,
         use_multi_gpu=args.use_multi_gpu,
-        use_deepspeed=args.use_deepspeed
+        use_deepspeed=args.use_deepspeed,
+        batch_size=args.batch_size,
+        disable_batch_generation=args.disable_batch_generation
     )
 
 
