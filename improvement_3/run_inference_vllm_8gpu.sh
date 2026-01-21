@@ -3,7 +3,7 @@
 # 每个GPU运行一个vLLM实例，处理1/8的数据
 
 # 配置参数
-SCENARIO_PATH="/data/jiashu.pu/data1/GIDigitalTwinBench/IdealSelf/LovinkDialogue"
+SCENARIO_PATH="/mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue"
 CHECKPOINT_DIR="/mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507"
 CONFIG_NAME="profile_and_history_and_context"
 OUTPUT_DIR="improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm"
