@@ -1,0 +1,55 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+警告: vLLM 库未安装，无法使用 vLLM 加速推理
+目标 GPU: 0
+CUDA 可用，GPU 数量: 1
+将使用 GPU: 0
+
+处理场景: /mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue
+模型: /mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507
+配置: profile=True, history=True, context=True
+测试样本数: 126
+数据分片 3/8: 处理样本 45 到 60 (共 15 个样本)
+✅ 成功将 7736 个样本保存至: /data/lingyu.li/parallel-post-train/ablation/sample_results/extracted_samples.jsonl
+训练样本数: 7736
+警告: vLLM 未安装，回退到标准 transformers 模式
+加载模型...
+检查模型文件: /mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507
+  发现 safetensors 文件: 16 个
+  发现 PyTorch 文件: 0 个
+加载 tokenizer（必须与模型 checkpoint 完全一致）
+✓ Tokenizer 加载成功
+  vocab_size: 151643
+  pad_token_id: 151643
+  eos_token_id: 151645
+  Tokenizer 词汇表大小: 151669
+  pad_token_id: 151643
+  eos_token_id: 151645
+  bos_token_id: None
+  加载模型权重...
+  使用单 GPU 模式，目标设备: cuda:0
+  使用数据类型: bfloat16
+  尝试使用 safetensors 格式加载...
+Loading checkpoint shards:   0%|          | 0/16 [00:00<?, ?it/s]Loading checkpoint shards:   6%|▋         | 1/16 [00:01<00:17,  1.19s/it]Loading checkpoint shards:  12%|█▎        | 2/16 [00:02<00:16,  1.21s/it]Loading checkpoint shards:  19%|█▉        | 3/16 [00:03<00:15,  1.22s/it]Loading checkpoint shards:  25%|██▌       | 4/16 [00:04<00:14,  1.24s/it]Loading checkpoint shards:  31%|███▏      | 5/16 [00:06<00:13,  1.24s/it]Loading checkpoint shards:  38%|███▊      | 6/16 [00:07<00:12,  1.25s/it]Loading checkpoint shards:  44%|████▍     | 7/16 [00:08<00:11,  1.24s/it]Loading checkpoint shards:  50%|█████     | 8/16 [00:09<00:09,  1.23s/it]Loading checkpoint shards:  56%|█████▋    | 9/16 [00:11<00:08,  1.22s/it]Loading checkpoint shards:  62%|██████▎   | 10/16 [00:12<00:07,  1.22s/it]Loading checkpoint shards:  69%|██████▉   | 11/16 [00:13<00:06,  1.22s/it]Loading checkpoint shards:  75%|███████▌  | 12/16 [00:14<00:04,  1.20s/it]Loading checkpoint shards:  81%|████████▏ | 13/16 [00:15<00:03,  1.17s/it]Loading checkpoint shards:  88%|████████▊ | 14/16 [00:16<00:02,  1.17s/it]Loading checkpoint shards:  94%|█████████▍| 15/16 [00:18<00:01,  1.15s/it]Loading checkpoint shards: 100%|██████████| 16/16 [00:18<00:00,  1.12it/s]Loading checkpoint shards: 100%|██████████| 16/16 [00:18<00:00,  1.14s/it]
+  ✓ 使用 safetensors 格式加载成功
+  模型权重加载完成
+警告: tokenizer vocab (151643) != model vocab (151936)
+这是正常的，因为 Qwen3 模型的词汇表大小可能大于 tokenizer 的词汇表大小
+模型会自动处理这种情况，只要 tokenizer 的词汇表是模型词汇表的子集即可
+✓ Tokenizer 词汇表 (151643) 是模型词汇表 (151936) 的子集，可以继续
+日志文件: improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm/inference_LovinkDialogue_profile_and_history_and_context_20260121_173828.json
+生成 continuations...
+生成进度:   0%|          | 0/15 [00:00<?, ?it/s]生成进度 (样本 1/15):   0%|          | 0/15 [00:00<?, ?it/s]生成进度 (样本 1/15):   7%|▋         | 1/15 [02:08<30:01, 128.66s/it]生成进度 (样本 2/15):  13%|█▎        | 2/15 [02:08<27:52, 128.66s/it]生成进度 (样本 2/15):  20%|██        | 3/15 [04:07<15:28, 77.37s/it] 生成进度 (样本 3/15):  27%|██▋       | 4/15 [04:07<14:11, 77.37s/it]生成进度 (样本 3/15):  33%|███▎      | 5/15 [06:13<11:41, 70.11s/it]生成进度 (样本 4/15):  33%|███▎      | 5/15 [06:13<11:41, 70.11s/it]生成进度 (样本 4/15):  40%|████      | 6/15 [08:11<12:25, 82.82s/it]生成进度 (样本 5/15):  47%|████▋     | 7/15 [08:11<11:02, 82.82s/it]生成进度 (样本 5/15):  53%|█████▎    | 8/15 [10:14<08:35, 73.57s/it]生成进度 (样本 6/15):  53%|█████▎    | 8/15 [10:14<08:35, 73.57s/it]生成进度 (样本 6/15):  60%|██████    | 9/15 [12:18<08:33, 85.59s/it]生成进度 (样本 7/15):  60%|██████    | 9/15 [12:18<08:33, 85.59s/it]生成进度 (样本 7/15):  67%|██████▋   | 10/15 [14:19<07:52, 94.41s/it]生成进度 (样本 8/15):  73%|███████▎  | 11/15 [14:19<06:17, 94.41s/it]生成进度 (样本 8/15):  80%|████████  | 12/15 [16:33<04:08, 82.91s/it]生成进度 (样本 9/15):  80%|████████  | 12/15 [16:33<04:08, 82.91s/it]生成进度 (样本 9/15):  87%|████████▋ | 13/15 [18:26<02:59, 89.83s/it]生成进度 (样本 10/15):  87%|████████▋ | 13/15 [18:26<02:59, 89.83s/it]生成进度 (样本 10/15):  93%|█████████▎| 14/15 [20:25<01:37, 97.07s/it]生成进度 (样本 11/15):  93%|█████████▎| 14/15 [20:25<01:37, 97.07s/it]生成进度 (样本 11/15): 100%|██████████| 15/15 [22:33<00:00, 105.27s/it]生成进度 (样本 12/15): : 16it [22:33, 105.27s/it]                      生成进度 (样本 12/15): : 17it [24:27, 84.65s/it] 生成进度 (样本 13/15): : 17it [24:27, 84.65s/it]生成进度 (样本 13/15): : 18it [26:17, 90.54s/it]生成进度 (样本 14/15): : 18it [26:17, 90.54s/it]生成进度 (样本 14/15): : 19it [30:32, 131.76s/it]生成进度 (样本 15/15): : 19it [30:32, 131.76s/it]生成进度 (样本 15/15): : 20it [32:28, 127.63s/it]生成进度 (样本 15/15): 100%|██████████| 15/15 [32:28<00:00, 129.92s/it]
+
+✓ 详细日志已保存到: improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm/inference_LovinkDialogue_profile_and_history_and_context_20260121_173828.json
+
+生成统计:
+  总data项: 15
+  成功生成: 15
+  跳过: 0
+  错误: 0
+输出目录: improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm
+
+✓ 结果已保存到: improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm/test_leaderboard_shard_3.json
+  每个样本生成了 5 个 continuations
+  输出目录: improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm
+  注意: 最终交付时只需要保留 test_leaderboard.json 文件
