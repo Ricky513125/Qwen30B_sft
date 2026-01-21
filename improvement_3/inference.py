@@ -114,6 +114,7 @@ def generate_continuations(
     no_repeat_ngram_size=4,  # 增加n-gram大小
     max_output_length=512,  # 输出文本最大字符数
     is_japanese_task=False,  # 是否为日语任务
+    max_input_length=4096,  # 输入最大长度，默认2048（可以根据模型调整）
 ):
     # 与训练时保持一致：使用 add_generation_prompt=False，然后手动添加引导符
     # 训练时的逻辑：full_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
@@ -142,11 +143,31 @@ def generate_continuations(
 
     # 对于多 GPU 模型或 DeepSpeed 模型，如果 device 为 None，让模型自动处理设备分配
     # 否则将输入放到指定设备
+    
+    # 获取模型的实际最大长度（从config中）
+    model_max_length = None
+    if hasattr(model, 'config'):
+        # 尝试从config中获取最大长度
+        if hasattr(model.config, 'max_position_embeddings'):
+            model_max_length = model.config.max_position_embeddings
+        elif hasattr(model.config, 'max_seq_len'):
+            model_max_length = model.config.max_seq_len
+        elif hasattr(model.config, 'model_max_length'):
+            model_max_length = model.config.model_max_length
+    
+    # 如果没有找到，使用默认值或传入的参数
+    if model_max_length is None:
+        model_max_length = max_input_length * 2  # 默认使用输入长度的2倍，给生成留空间
+    
+    # 计算实际可用的输入长度（留出空间给生成）
+    # 至少保留512 tokens用于生成
+    available_input_length = max(model_max_length - max_new_tokens - 100, max_input_length)
+    
     inputs = tokenizer(
         text,
         return_tensors="pt",
         truncation=True,
-        max_length=512
+        max_length=available_input_length  # 使用动态计算的长度
     )
     # 如果指定了 device，将输入移到该设备
     # 对于使用 device_map 或 DeepSpeed 的模型，可以不移动，让模型自动处理
@@ -256,14 +277,31 @@ def generate_continuations(
         # 添加生成超时保护（通过max_new_tokens限制，避免无限生成）
         # 如果输入太长，减少max_new_tokens
         input_length = inputs["input_ids"].shape[1]
-        if input_length > 400:  # 如果输入超过400 tokens
-            # 动态调整max_new_tokens，确保总长度不超过模型限制
-            adjusted_max_new_tokens = min(max_new_tokens, 512 - input_length)
+        
+        # 获取模型的实际最大长度
+        model_max_length = None
+        if hasattr(model, 'config'):
+            if hasattr(model.config, 'max_position_embeddings'):
+                model_max_length = model.config.max_position_embeddings
+            elif hasattr(model.config, 'max_seq_len'):
+                model_max_length = model.config.max_seq_len
+            elif hasattr(model.config, 'model_max_length'):
+                model_max_length = model.config.model_max_length
+        
+        # 如果没有找到，使用保守的默认值（32768是Qwen3-30B的常见值）
+        if model_max_length is None:
+            model_max_length = 4096
+        
+        # 动态调整max_new_tokens，确保总长度不超过模型限制
+        # 留出100 tokens的缓冲空间
+        max_total_length = model_max_length - 100
+        if input_length + max_new_tokens > max_total_length:
+            adjusted_max_new_tokens = max_total_length - input_length
             if adjusted_max_new_tokens < 50:
                 adjusted_max_new_tokens = 50  # 至少生成50个tokens
             generation_kwargs["max_new_tokens"] = adjusted_max_new_tokens
             if adjusted_max_new_tokens != max_new_tokens:
-                print(f"    警告: 输入长度 {input_length} 较长，调整 max_new_tokens 为 {adjusted_max_new_tokens}")
+                print(f"    提示: 输入长度 {input_length}, 模型最大长度 {model_max_length}, 调整 max_new_tokens 为 {adjusted_max_new_tokens}")
         
         outputs = model.generate(
             **inputs,
