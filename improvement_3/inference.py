@@ -11,6 +11,8 @@ import torch
 from pathlib import Path
 from tqdm import tqdm
 from datetime import datetime
+import signal
+from contextlib import contextmanager
 
 sys.path.insert(0, str(Path(__file__).parent))
 from data_loader import load_train_data, extract_training_samples, get_user_history_samples
@@ -29,6 +31,27 @@ try:
 except ImportError:
     DEEPSPEED_AVAILABLE = False
     print("警告: deepspeed 库未安装，无法使用 DeepSpeed ZeRO-3")
+
+
+@contextmanager
+def timeout_handler(seconds):
+    """超时处理上下文管理器（仅Linux/Unix）"""
+    def timeout_signal(signum, frame):
+        raise TimeoutError(f"操作超时（{seconds}秒）")
+    
+    # 设置信号处理器（仅Linux/Unix）
+    if hasattr(signal, 'SIGALRM'):
+        old_handler = signal.signal(signal.SIGALRM, timeout_signal)
+        signal.alarm(seconds)
+        try:
+            yield
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+    else:
+        # Windows不支持SIGALRM，使用简单的try-except
+        # 注意：Windows上无法强制中断，只能依赖模型自身的超时
+        yield
 
 
 def load_test_leaderboard(test_leaderboard_path: str) -> list:
@@ -229,6 +252,18 @@ def generate_continuations(
         # 注意：transformers的generate方法不支持stop_strings参数
         # 停止逻辑通过eos_token_id和max_new_tokens来控制
         # 如果需要更复杂的停止词逻辑，可以使用StoppingCriteria，但这里暂时不需要
+        
+        # 添加生成超时保护（通过max_new_tokens限制，避免无限生成）
+        # 如果输入太长，减少max_new_tokens
+        input_length = inputs["input_ids"].shape[1]
+        if input_length > 400:  # 如果输入超过400 tokens
+            # 动态调整max_new_tokens，确保总长度不超过模型限制
+            adjusted_max_new_tokens = min(max_new_tokens, 512 - input_length)
+            if adjusted_max_new_tokens < 50:
+                adjusted_max_new_tokens = 50  # 至少生成50个tokens
+            generation_kwargs["max_new_tokens"] = adjusted_max_new_tokens
+            if adjusted_max_new_tokens != max_new_tokens:
+                print(f"    警告: 输入长度 {input_length} 较长，调整 max_new_tokens 为 {adjusted_max_new_tokens}")
         
         outputs = model.generate(
             **inputs,
@@ -1391,13 +1426,19 @@ def process_scenario(
     error_count = 0
     skipped_count = 0
     
-    for sample_idx, sample in enumerate(tqdm(test_data, desc="生成进度")):
+    # 使用tqdm显示进度，并添加位置参数以便手动更新
+    pbar = tqdm(test_data, desc="生成进度", total=len(test_data))
+    for sample_idx, sample in enumerate(pbar):
+        # 更新进度条描述
+        pbar.set_description(f"生成进度 (样本 {sample_idx+1}/{len(test_data)})")
+        
         # test_leaderboard.json的结构：context在task.task_behavior_collections[0].data[0].context
         task = sample.get('task', {})
         collections = task.get('task_behavior_collections', [])
         
         if not collections:
             print(f"警告: 样本 {sample_idx} 缺少 task_behavior_collections，跳过")
+            pbar.update(1)
             continue
         
         # 处理每个collection中的data
@@ -1462,52 +1503,98 @@ def process_scenario(
                 continuations = []
                 
                 # 生成 num_samples 个 continuations
-                for _ in range(num_samples):
+                generation_timeout = 300  # 每个样本最多5分钟
+                print(f"  开始生成样本 {sample_idx}, 数据项 {total_items} 的 {num_samples} 个continuations...")
+                
+                for sample_num in range(num_samples):
                     try:
-                        result = generate_continuations(
-                            model=model,
-                            tokenizer=tokenizer,
-                            messages=messages,
-                            num_samples=1,  # 每次生成1个
-                            max_new_tokens=max_new_tokens,  # 使用参数
-                            device=model_device,
-                            do_sample=True,
-                            temperature=0.7,
-                            top_p=0.9,
-                            repetition_penalty=1.2,  # 增加重复惩罚
-                            no_repeat_ngram_size=4,
-                            max_output_length=max_output_length,
-                            is_japanese_task=is_japanese_task  # 传递日语任务标识
-                        )
+                        print(f"    生成第 {sample_num+1}/{num_samples} 个continuation...")
+                        
+                        # 添加超时保护（仅Linux/Unix）
+                        if hasattr(signal, 'SIGALRM'):
+                            with timeout_handler(generation_timeout):
+                                result = generate_continuations(
+                                    model=model,
+                                    tokenizer=tokenizer,
+                                    messages=messages,
+                                    num_samples=1,  # 每次生成1个
+                                    max_new_tokens=max_new_tokens,  # 使用参数
+                                    device=model_device,
+                                    do_sample=True,
+                                    temperature=0.7,
+                                    top_p=0.9,
+                                    repetition_penalty=1.2,  # 增加重复惩罚
+                                    no_repeat_ngram_size=4,
+                                    max_output_length=max_output_length,
+                                    is_japanese_task=is_japanese_task  # 传递日语任务标识
+                                )
+                        else:
+                            # Windows系统，不使用超时（依赖模型自身超时）
+                            result = generate_continuations(
+                                model=model,
+                                tokenizer=tokenizer,
+                                messages=messages,
+                                num_samples=1,  # 每次生成1个
+                                max_new_tokens=max_new_tokens,  # 使用参数
+                                device=model_device,
+                                do_sample=True,
+                                temperature=0.7,
+                                top_p=0.9,
+                                repetition_penalty=1.2,  # 增加重复惩罚
+                                no_repeat_ngram_size=4,
+                                max_output_length=max_output_length,
+                                is_japanese_task=is_japanese_task  # 传递日语任务标识
+                            )
+                        
                         if result and len(result) > 0:
                             continuations.extend(result)
+                            print(f"  样本 {sample_idx}, 数据项 {total_items}, 已生成 {len(continuations)}/{num_samples} 个continuations")
+                        else:
+                            print(f"  警告: 样本 {sample_idx}, 数据项 {total_items}, 第 {sample_num+1} 个生成结果为空")
+                    except TimeoutError as e:
+                        print(f"  错误: 样本 {sample_idx}, 数据项 {total_items}, 第 {sample_num+1} 个生成超时: {e}")
+                        print(f"  跳过该样本的剩余生成，继续处理下一个")
+                        break
                     except RuntimeError as e:
-                        if "CUDA" in str(e) or "device-side assert" in str(e) or "inf" in str(e) or "nan" in str(e):
-                            # 尝试使用 greedy decoding
+                        error_msg = str(e)
+                        if "CUDA" in error_msg or "device-side assert" in error_msg or "inf" in error_msg or "nan" in error_msg or "out of memory" in error_msg.lower():
+                            print(f"  警告: 样本 {sample_idx}, 数据项 {total_items}, CUDA错误: {error_msg[:200]}")
+                            # 清理CUDA缓存
+                            torch.cuda.empty_cache()
+                            # 尝试使用 greedy decoding 和更短的序列
                             try:
                                 result = generate_continuations(
                                     model=model,
                                     tokenizer=tokenizer,
                                     messages=messages,
                                     num_samples=1,
-                                    max_new_tokens=max_new_tokens,  # 使用参数
+                                    max_new_tokens=min(max_new_tokens, 256),  # 减少生成长度
                                     device=model_device,
                                     do_sample=False,  # Greedy decoding
-                                    repetition_penalty=1.2,  # 增加重复惩罚
+                                    repetition_penalty=1.2,
                                     no_repeat_ngram_size=4,
                                     max_output_length=max_output_length,
-                                    is_japanese_task=is_japanese_task  # 传递日语任务标识
+                                    is_japanese_task=is_japanese_task
                                 )
                                 if result and len(result) > 0:
                                     continuations.extend(result)
+                                    print(f"  使用greedy decoding成功生成")
                             except Exception as e2:
-                                print(f"  警告: 生成失败: {e2}")
+                                print(f"  警告: greedy decoding也失败: {str(e2)[:200]}")
+                                # 如果还是失败，跳过这个样本
                                 break
                         else:
+                            print(f"  错误: 样本 {sample_idx}, 数据项 {total_items}, RuntimeError: {error_msg[:200]}")
                             raise
                     except Exception as e:
-                        print(f"  警告: 生成失败: {e}")
-                        break
+                        error_msg = str(e)
+                        print(f"  警告: 样本 {sample_idx}, 数据项 {total_items}, 生成失败: {error_msg[:200]}")
+                        # 如果是关键错误，跳过剩余生成
+                        if "memory" in error_msg.lower() or "cuda" in error_msg.lower():
+                            print(f"  检测到内存或CUDA错误，跳过该样本的剩余生成")
+                            break
+                        # 其他错误，继续尝试下一个
+                        continue
                 
                 # 获取参考值（如果有）
                 reference = data_item.get('continuation', '') or data_item.get('reference', '')
@@ -1527,20 +1614,30 @@ def process_scenario(
                 
                 # 记录日志
                 if log_file:
-                    log_inference_details(
-                        log_file=log_file,
-                        sample_idx=sample_idx,
-                        data_item_idx=total_items - 1,
-                        context=context,
-                        messages=messages,
-                        user_info=user_info,
-                        history_evidence=history_evidence,
-                        continuations=continuations,
-                        reference=reference,
-                        error=error_msg,
-                        is_first_entry=is_first_log_entry
-                    )
-                    is_first_log_entry = False
+                    try:
+                        log_inference_details(
+                            log_file=log_file,
+                            sample_idx=sample_idx,
+                            data_item_idx=total_items - 1,
+                            context=context,
+                            messages=messages,
+                            user_info=user_info,
+                            history_evidence=history_evidence,
+                            continuations=continuations,
+                            reference=reference,
+                            error=error_msg,
+                            is_first_entry=is_first_log_entry
+                        )
+                        is_first_log_entry = False
+                    except Exception as log_error:
+                        print(f"  警告: 记录日志失败: {log_error}")
+        
+        # 每个样本处理完后，更新进度条
+        pbar.update(1)
+        
+        # 定期清理CUDA缓存，防止内存累积
+        if sample_idx % 10 == 0 and torch.cuda.is_available():
+            torch.cuda.empty_cache()
     
     # 关闭日志文件
     if log_file:

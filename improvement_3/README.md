@@ -198,10 +198,10 @@ python improvement_3/inference.py \
     --use_history \
     --use_context \
     --use_multi_gpu \
-    --num_samples 5
+    --num_samples 5 \
+    --output_dir improvement_3/testleaderboards/0121Q30B_Lovink_phc
 ```
 
---output_dir
 python ablation/improvement_3/inference.py \
     --checkpoint_dir /path/to/checkpoint \
     --scenario_path /path/to/scenario \
