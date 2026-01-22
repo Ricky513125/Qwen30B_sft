@@ -13,6 +13,10 @@ from tqdm import tqdm
 from datetime import datetime
 import signal
 from contextlib import contextmanager
+import logging
+
+# 设置 logger
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent))
 from data_loader import load_train_data, extract_training_samples, get_user_history_samples
@@ -903,6 +907,14 @@ def process_scenario(
         num_samples: 每个样本生成的continuation数量
         output_dir: 输出目录（如果为None，则在scenario_path下创建）
     """
+    # 初始化 model_files 默认值
+    model_files = {
+        "has_pytorch": False,
+        "has_safetensors": False,
+        "pytorch_files": [],
+        "safetensors_files": []
+    }
+    
     print(f"\n处理场景: {scenario_path}")
     print(f"模型: {checkpoint_dir}")
     print(f"配置: profile={use_profile}, history={use_history}, context={use_context}")
@@ -1030,9 +1042,13 @@ def process_scenario(
         
         # 检查模型文件类型
         print(f"检查模型文件: {base_model_path}")
-        model_files = check_model_files(base_model_path)
-        print(f"  发现 safetensors 文件: {len(model_files['safetensors_files'])} 个")
-        print(f"  发现 PyTorch 文件: {len(model_files['pytorch_files'])} 个")
+        try:
+            model_files = check_model_files(base_model_path)
+            print(f"  发现 safetensors 文件: {len(model_files['safetensors_files'])} 个")
+            print(f"  发现 PyTorch 文件: {len(model_files['pytorch_files'])} 个")
+        except Exception as e:
+            logger.warning(f"device_map 加载失败: {e}")
+            print(f"  警告: 检查模型文件失败，使用默认值: {e}")
         
         # 尝试加载 tokenizer（与训练脚本保持一致）
         tokenizer_json_path = os.path.join(checkpoint_dir, 'tokenizer.json')
