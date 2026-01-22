@@ -1086,20 +1086,20 @@ def process_scenario(
         
         # 加载模型
         print("  加载模型权重...")
-    # 根据是否使用多 GPU 或 DeepSpeed 来决定设备设置
-    # DeepSpeed 会自动使用所有 GPU，所以也应该被视为多 GPU 模式
-    # 检查 DeepSpeed 是否可用（在函数内部检查，确保正确）
-    deepspeed_available = False
-    if use_deepspeed:
-        try:
-            import deepspeed
-            deepspeed_available = True
-        except ImportError:
-            deepspeed_available = False
-            print("  警告: DeepSpeed 未安装，将回退到普通加载方式")
-    
-    if torch.cuda.is_available():
-        if use_multi_gpu or (use_deepspeed and deepspeed_available):
+        # 根据是否使用多 GPU 或 DeepSpeed 来决定设备设置
+        # DeepSpeed 会自动使用所有 GPU，所以也应该被视为多 GPU 模式
+        # 检查 DeepSpeed 是否可用（在函数内部检查，确保正确）
+        deepspeed_available = False
+        if use_deepspeed:
+            try:
+                import deepspeed
+                deepspeed_available = True
+            except ImportError:
+                deepspeed_available = False
+                print("  警告: DeepSpeed 未安装，将回退到普通加载方式")
+        
+        if torch.cuda.is_available():
+            if use_multi_gpu or (use_deepspeed and deepspeed_available):
             # 使用所有可用的 GPU
             num_gpus = torch.cuda.device_count()
             if use_deepspeed and deepspeed_available:
@@ -1112,15 +1112,15 @@ def process_scenario(
             # 使用指定的单个 GPU
             target_device = torch.device(f'cuda:{gpu_id}')
             print(f"  使用单 GPU 模式，目标设备: {target_device}")
-    else:
-        target_device = torch.device('cpu')
-        print(f"  目标设备: {target_device}")
-    
-    # 检查是否是 LoRA 模型（检查是否存在 adapter_config.json）
-    adapter_config_path = os.path.join(checkpoint_dir, 'adapter_config.json')
-    is_lora_model = os.path.exists(adapter_config_path)
-    
-    if is_lora_model and PEFT_AVAILABLE:
+        else:
+            target_device = torch.device('cpu')
+            print(f"  目标设备: {target_device}")
+        
+        # 检查是否是 LoRA 模型（检查是否存在 adapter_config.json）
+        adapter_config_path = os.path.join(checkpoint_dir, 'adapter_config.json')
+        is_lora_model = os.path.exists(adapter_config_path)
+        
+        if is_lora_model and PEFT_AVAILABLE:
         print("  检测到 LoRA 模型，使用 PeftModel 加载...")
         # 首先需要加载基础模型，然后加载 LoRA 适配器
         # 从 adapter_config.json 读取基础模型路径
@@ -1186,8 +1186,8 @@ def process_scenario(
             print(f"  加载 LoRA 模型失败: {e}")
             print("  尝试作为普通模型加载...")
             is_lora_model = False
-    
-    if not is_lora_model:
+        
+        if not is_lora_model:
         # 加载普通模型（非 LoRA）
         try:
             if use_deepspeed and deepspeed_available and torch.cuda.is_available():
