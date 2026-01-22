@@ -985,12 +985,12 @@ def process_scenario(
             "tensor_parallel_size": vllm_tensor_parallel_size,
             "trust_remote_code": True,
             "dtype": "bfloat16" if torch.cuda.is_bf16_supported() else "float16",
-            "gpu_memory_utilization": 0.85,  # 限制GPU内存使用为85%，留出缓冲
-            "max_model_len": vllm_max_model_len if vllm_max_model_len else 2048,  # 默认2048，减少内存占用
+            "gpu_memory_utilization": 0.75,  # 限制GPU内存使用为75%，留出更多缓冲（Qwen3-30B MoE需要更多内存）
+            "max_model_len": vllm_max_model_len if vllm_max_model_len else 1024,  # 默认1024，减少内存占用
         }
         
         # 对于Qwen3-30B MoE模型，可能需要更保守的设置
-        print(f"vLLM配置: gpu_memory_utilization=0.85, max_model_len={vllm_kwargs['max_model_len']}")
+        print(f"vLLM配置: gpu_memory_utilization={vllm_kwargs['gpu_memory_utilization']}, max_model_len={vllm_kwargs['max_model_len']}")
         
         print(f"初始化 vLLM 引擎...")
         try:
@@ -1003,9 +1003,9 @@ def process_scenario(
                 print(f"错误详情: {error_msg[:500]}")
                 
                 # 尝试更保守的设置
-                vllm_kwargs["gpu_memory_utilization"] = 0.70  # 进一步降低到70%
-                vllm_kwargs["max_model_len"] = min(vllm_kwargs.get("max_model_len", 2048), 1536)  # 进一步减少
-                print(f"重试配置: gpu_memory_utilization=0.70, max_model_len={vllm_kwargs['max_model_len']}")
+                vllm_kwargs["gpu_memory_utilization"] = 0.60  # 进一步降低到60%
+                vllm_kwargs["max_model_len"] = min(vllm_kwargs.get("max_model_len", 1024), 768)  # 进一步减少
+                print(f"重试配置: gpu_memory_utilization=0.60, max_model_len={vllm_kwargs['max_model_len']}")
                 try:
                     vllm_engine = LLM(**vllm_kwargs)
                     print("✓ vLLM 引擎加载成功（使用保守配置）")
@@ -1032,6 +1032,7 @@ def process_scenario(
             tokenizer.pad_token = tokenizer.eos_token
         
         model = None  # vLLM模式下不使用transformers模型
+        print("vLLM 模式：跳过 transformers 模型加载")
     elif use_vllm and not VLLM_AVAILABLE:
         print("警告: vLLM 未安装，回退到标准 transformers 模式")
         vllm_engine = None
