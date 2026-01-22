@@ -1,4 +1,4 @@
-  File "/mnt/parallel/Qwen_30B_try/improvement_3/inference.py", line 1104
-    num_gpus = torch.cuda.device_count()
+  File "/mnt/parallel/Qwen_30B_try/improvement_3/inference.py", line 861
+    target_device = torch.device(f'cuda:{gpu_id}')
     ^
-IndentationError: expected an indented block after 'if' statement on line 1102
+IndentationError: expected an indented block after 'else' statement on line 859
