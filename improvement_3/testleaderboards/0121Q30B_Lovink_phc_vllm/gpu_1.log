@@ -1,4 +1,4 @@
-  File "/mnt/parallel/Qwen_30B_try/improvement_3/inference.py", line 861
-    target_device = torch.device(f'cuda:{gpu_id}')
-    ^
-IndentationError: expected an indented block after 'else' statement on line 859
+  File "/mnt/parallel/Qwen_30B_try/improvement_3/inference.py", line 25
+    from prompt_builder import build_prompt
+    ^^^^
+SyntaxError: expected 'except' or 'finally' block

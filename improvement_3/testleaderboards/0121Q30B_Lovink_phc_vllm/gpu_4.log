@@ -1,4 +1,7 @@
-  File "/mnt/parallel/Qwen_30B_try/improvement_3/inference.py", line 861
-    target_device = torch.device(f'cuda:{gpu_id}')
-    ^
-IndentationError: expected an indented block after 'else' statement on line 859
+usage: inference.py [-h] --checkpoint_dir CHECKPOINT_DIR --scenario_path
+                    SCENARIO_PATH --config_name CONFIG_NAME
+                    [--base_model_path BASE_MODEL_PATH] [--use_profile]
+                    [--use_history] [--use_vllm] [--gpu GPU]
+                    [--num_samples NUM_SAMPLES]
+                    [--data_shard_id DATA_SHARD_ID]
+inference.py: error: unrecognized arguments: --use_context --output_dir improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm --max_new_tokens 512 --max_output_length 512 --vllm_tensor_parallel_size 1 --vllm_max_model_len 1024 --num_shards 8

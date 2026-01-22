@@ -206,7 +206,8 @@ def process_scenario(
     use_context=True, num_samples=5, output_dir=None, gpu_id=0,
     log_file_path=None, base_model_path=None, max_new_tokens=512,
     max_output_length=200, use_multi_gpu=False, use_deepspeed=False,
-    use_vllm=False, vllm_tensor_parallel_size=1, data_shard_id=None, num_shards=8
+    use_vllm=False, vllm_tensor_parallel_size=1, vllm_max_model_len=None,
+    data_shard_id=None, num_shards=8
 ):
     print(f"\n>>> 启动场景处理: {os.path.basename(scenario_path)}")
     
@@ -227,7 +228,15 @@ def process_scenario(
     if tokenizer.pad_token is None: tokenizer.pad_token = tokenizer.eos_token
 
     if use_vllm and VLLM_AVAILABLE:
-        vllm_engine = LLM(model=base_model_path, tensor_parallel_size=vllm_tensor_parallel_size, trust_remote_code=True, gpu_memory_utilization=0.8)
+        vllm_kwargs = {
+            "model": base_model_path,
+            "tensor_parallel_size": vllm_tensor_parallel_size,
+            "trust_remote_code": True,
+            "gpu_memory_utilization": 0.75,
+        }
+        if vllm_max_model_len:
+            vllm_kwargs["max_model_len"] = vllm_max_model_len
+        vllm_engine = LLM(**vllm_kwargs)
         model = None
     else:
         # 非 vLLM 加载
@@ -250,7 +259,7 @@ def process_scenario(
                     device_map="auto" if use_multi_gpu else { "": f"cuda:{gpu_id}" },
                     trust_remote_code=True
                 )
-        model.eval()
+    model.eval()
 
     # 3. 推理循环
     for sample in tqdm(test_data, desc="生成中"):
@@ -283,7 +292,7 @@ def process_scenario(
     # 4. 保存结果
     if not output_dir:
         output_dir = os.path.join("/mnt/parallel/outputs", f"{os.path.basename(scenario_path)}_{config_name}")
-    os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
     
     out_file = os.path.join(output_dir, f'test_leaderboard{"_shard_"+str(data_shard_id) if data_shard_id is not None else ""}.json')
     with open(out_file, 'w', encoding='utf-8') as f:
@@ -299,24 +308,38 @@ def main():
     parser.add_argument('--base_model_path', type=str, default="/mnt/parallel/models/Qwen3-8B")
     parser.add_argument('--use_profile', action='store_true')
     parser.add_argument('--use_history', action='store_true')
+    parser.add_argument('--use_context', action='store_true', default=False)
     parser.add_argument('--use_vllm', action='store_true')
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--num_samples', type=int, default=5)
+    parser.add_argument('--output_dir', type=str, default=None)
+    parser.add_argument('--max_new_tokens', type=int, default=512)
+    parser.add_argument('--max_output_length', type=int, default=200)
+    parser.add_argument('--vllm_tensor_parallel_size', type=int, default=1)
+    parser.add_argument('--vllm_max_model_len', type=int, default=None)
     parser.add_argument('--data_shard_id', type=int, default=None)
+    parser.add_argument('--num_shards', type=int, default=8)
     
     args = parser.parse_args()
-
+    
     process_scenario(
         scenario_path=args.scenario_path,
         checkpoint_dir=args.checkpoint_dir,
         config_name=args.config_name,
         use_profile=args.use_profile,
         use_history=args.use_history,
+        use_context=args.use_context,
         num_samples=args.num_samples,
+        output_dir=args.output_dir,
         gpu_id=args.gpu,
         base_model_path=args.base_model_path,
+        max_new_tokens=args.max_new_tokens,
+        max_output_length=args.max_output_length,
         use_vllm=args.use_vllm,
-        data_shard_id=args.data_shard_id
+        vllm_tensor_parallel_size=args.vllm_tensor_parallel_size,
+        vllm_max_model_len=args.vllm_max_model_len,
+        data_shard_id=args.data_shard_id,
+        num_shards=args.num_shards
     )
 
 if __name__ == '__main__':
