@@ -21,7 +21,7 @@ MAX_OUTPUT_LENGTH=512
 # vLLM参数
 VLLM_TENSOR_PARALLEL_SIZE=1  # 单卡运行
 # VLLM_MAX_MODEL_LEN=2048  # 减少到2048以节省内存（Qwen3-30B MoE模型需要更多内存）
-VLLM_MAX_MODEL_LEN=1536  # 减少到2048以节省内存（Qwen3-30B MoE模型需要更多内存）
+VLLM_MAX_MODEL_LEN=1024  # 减少到2048以节省内存（Qwen3-30B MoE模型需要更多内存）
 
 # 数据分片参数
 NUM_SHARDS=8
