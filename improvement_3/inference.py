@@ -621,255 +621,6 @@ def clean_model_output(text: str, max_length: int = 512) -> str:
     return result[:max_length].strip()
 
 
-# def clean_model_output(text: str, max_length: int = 32768) -> str:
-#     """极致清理：移除思考过程、ChatML 标签、角色标识、垃圾token"""
-#     if not text:
-#         return ""
-    
-#     # 保存原始文本，以防清理后为空
-#     original_text = text
-    
-#     # 1. 移除 <think>...</think> 及其内部的所有内容
-#     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    
-#     # 2. 移除残余的或未闭合的标签
-#     text = text.replace('<think>', '').replace('</think>', '')
-    
-#     # 3. 移除垃圾token和模式（VRTX, Vertex, Porno, oplayer, optimizer等）
-#     # 注意：只移除明确的垃圾token，不要误删正常内容
-#     garbage_patterns = [
-#         r'\bVRTX\b', r'\bVERTEX\b', r'<Vertex>', r'\(Vertex\)', r'_VERTEX_',
-#         r'\bPorno\b', r'\bporno\b', r'\bPorn\b', r'\bporn\b', r'\bXXX\b', r'\bxxx\b',
-#         r'\boplayer\b', r'\boptimizer\b', r'\boyal\b',
-#         r'Viagra\s+Porno', r'Porno\s+Porno',
-#         r'色情', r'暴力', r'恐怖', r'成人', r'性爱', r'激情', r'情色',
-#     ]
-#     for pattern in garbage_patterns:
-#         text = re.sub(pattern, '', text, flags=re.IGNORECASE)
-    
-#     # 4. 移除模型可能输出的 meta-commentary（例如：好的，我需要分析...）
-#     # 这是一个启发式规则：如果回答中包含大段关于"用户"、"对话"、"分析"的中文解释，尝试截断
-#     # 注意：这个逻辑可能过于激进，只在明确找到答案时才截断，否则保留原文本
-#     if "分析" in text or "建议" in text or "要求" in text:
-#         # 如果模型在最后才给答案，答案通常在 [[ ]] 或 "最终生成：" 之后
-#         final_ans = re.search(r'\[\[(.*?)\]\]', text)
-#         if final_ans and final_ans.group(1).strip():
-#             text = final_ans.group(1)
-#         elif "最终生成" in text:
-#             parts = text.split("最终生成")
-#             if len(parts) > 1 and parts[-1].strip():
-#                 text = parts[-1]
-#             # 如果分割后为空，保留原文本（不做任何修改）
-
-#     # 5. 移除 Chat 模板相关的标记
-#     special_patterns = [r'<\|im_start\|>.*?\n', r'<\|im_end\|>', r'<\|user\|>', r'<\|assistant\|>']
-#     for pattern in special_patterns:
-#         text = re.sub(pattern, '', text)
-        
-#     # 6. 移除奇怪的重复后缀 (如你结果中的 ROKE)
-#     text = text.replace('ROKE', '').strip()
-    
-#     # 6.5. 移除零宽字符和特殊Unicode控制字符
-#     text = re.sub(r'[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]', '', text)
-#     text = re.sub(r'[\u2028\u2029]', '\n', text)
-    
-#     # 6.6. 优先在第一个换行符处截断（如果后面跟着垃圾内容）
-#     first_newline_pos = text.find('\n')
-#     if first_newline_pos > 0:
-#         # 检查第一个换行符后的内容
-#         after_first_line = text[first_newline_pos + 1:].strip()
-#         # 垃圾模式：以括号、符号、元数据等开头
-#         garbage_start_patterns = [
-#             r'^（',  # 以"（"开头（如"（感情・態度）"、"（注：...）"）
-#             r'^\(',  # 以"("开头
-#             r'^※',  # 以"※"开头
-#             r'^\*\*\*\*',  # 以"****"开头
-#             r'^\*\*',  # 以"**"开头
-#             r'^---',  # 以"---"开头
-#             r'^stage',  # 以"stage"开头
-#             r'^問題',  # 以"問題"开头
-#             r'^（以下',  # 以"（以下"开头
-#             r'^（注',  # 以"（注"开头
-#             r'^（上記',  # 以"（上記"开头
-#             r'^[A-Z]\)',  # 以"A)"开头（选择题）
-#         ]
-#         for pattern in garbage_start_patterns:
-#             if re.match(pattern, after_first_line, re.IGNORECASE):
-#                 # 在第一个换行符处截断
-#                 text = text[:first_newline_pos].strip()
-#                 break
-    
-#     # 6.7. 检测并截断其他垃圾模式
-#     garbage_markers = [
-#         r'\n（',  # 换行后跟"（"
-#         r'\n\(',  # 换行后跟"("
-#         r'\n※',  # 换行后跟"※"
-#         r'\n\*\*\*\*',  # 换行后跟"****"
-#         r'\n\*\*[：:]',  # 换行后跟"**:"
-#         r'\n問題[：:]',  # 换行后跟"問題："
-#         r'\nstage',  # 换行后跟"stage"
-#         r'\n---',  # 换行后跟"---"
-#         r'\n[A-Z]\)\s*[A-Z]\)',  # 换行后跟选择题模式
-#     ]
-#     first_garbage_pos = len(text)
-#     for pattern in garbage_markers:
-#         match = re.search(pattern, text, re.IGNORECASE)
-#         if match:
-#             pos = match.start()
-#             if pos < first_garbage_pos:
-#                 first_garbage_pos = pos
-    
-#     if first_garbage_pos < len(text):
-#         text = text[:first_garbage_pos].strip()
-    
-#     # 6.8. 移除末尾的重复垃圾模式
-#     trailing_garbage = [
-#         r'(\n\*\*\*\*[：:]\s*)+$',
-#         r'(\n\*\*[：:]\s*)+$',
-#         r'(\n\s*[※\-\*]+\s*)+$',
-#     ]
-#     for pattern in trailing_garbage:
-#         text = re.sub(pattern, '', text)
-    
-#     # 7. 移除过多的emoji（保留前3个，删除后面的）
-#     # 注意：如果文本中没有emoji，这个逻辑不应该影响文本
-#     emoji_pattern = r'[😀-🙏🌀-🗿🚀-🛿Ⓜ-🉑]+'
-#     emoji_matches = list(re.finditer(emoji_pattern, text))
-#     if len(emoji_matches) > 3:
-#         # 保留前3个emoji，删除后面的
-#         keep_end = emoji_matches[2].end() if len(emoji_matches) > 2 else len(text)
-#         # 找到keep_end之后第一个非emoji字符的位置
-#         remaining_text = text[keep_end:]
-#         # 移除所有emoji
-#         remaining_text = re.sub(emoji_pattern, '', remaining_text)
-#         text = text[:keep_end] + remaining_text
-#     # 如果没有超过3个emoji，不做任何处理
-    
-#     # 8. 移除重复的标点符号（超过2个连续的标点）
-#     text = re.sub(r'([。！？，、；：])\1{2,}', r'\1', text)
-#     text = re.sub(r'([.!?,;:])\1{2,}', r'\1', text)
-    
-#     # 8.5. 在句子结尾处截断（如果后面跟着垃圾内容）
-#     sentence_endings = ['。', '！', '？', '.', '!', '?', '～', '〜']
-#     for ending in sentence_endings:
-#         last_pos = text.rfind(ending)
-#         if last_pos > 0:
-#             after = text[last_pos + 1:].strip()
-#             # 如果后面跟着垃圾模式，截断
-#             if after and (
-#                 after.startswith(('（', '(', '※', '****', '**', '問題', '---', 'stage')) or
-#                 re.match(r'^[A-Z]\)', after)
-#             ):
-#                 text = text[:last_pos + 1].strip()
-#                 break
-    
-#     # 9. 按句子边界截断（如果太长）
-#     text = text.strip()
-#     if len(text) > max_length:
-#         # 尝试在句子边界截断
-#         sentences = re.split(r'([。！？.!?])', text)
-#         truncated = ""
-#         for i in range(0, len(sentences), 2):
-#             if i + 1 < len(sentences):
-#                 candidate = truncated + sentences[i] + sentences[i+1]
-#             else:
-#                 candidate = truncated + sentences[i]
-            
-#             if len(candidate) <= max_length:
-#                 truncated = candidate
-#             else:
-#                 break
-        
-#         if truncated and len(truncated) > 0:
-#             text = truncated
-#         else:
-#             # 如果找不到句子边界，直接截断
-#             text = text[:max_length].rstrip()
-#             # 尝试在最后一个标点处截断
-#             last_punct = max(
-#                 text.rfind('。'), text.rfind('！'), text.rfind('？'),
-#                 text.rfind('.'), text.rfind('!'), text.rfind('?'),
-#                 text.rfind('，'), text.rfind(',')
-#             )
-#             if last_punct > max_length * 0.5:  # 至少保留一半长度
-#                 text = text[:last_punct + 1]
-#             # 如果截断后为空，至少保留前max_length个字符
-#             if not text.strip():
-#                 text = text[:max_length].strip()
-    
-#     # 10. 处理多语言污染（如果目标是日语，过滤掉大段的中文解释）
-#     # 针对"中文推理+日语回答"的情况，进行强力截断
-#     # 检测是否包含大量中文字符和少量日文字符（可能是中文推理+日语回答）
-#     chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
-#     japanese_chars = len(re.findall(r'[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]', text))
-#     total_cjk_chars = chinese_chars + japanese_chars
-    
-#     if total_cjk_chars > 10:
-#         chinese_ratio = chinese_chars / total_cjk_chars if total_cjk_chars > 0 else 0
-#         japanese_ratio = japanese_chars / total_cjk_chars if total_cjk_chars > 0 else 0
-        
-#         # 如果中文比例很高（>70%），可能是中文推理，尝试找到日语回答的开始位置
-#         if chinese_ratio > 0.7 and japanese_ratio > 0.1:
-#             # 尝试找到第一个连续的日语段落（至少10个字符）
-#             japanese_pattern = r'[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]{10,}'
-#             japanese_matches = list(re.finditer(japanese_pattern, text))
-            
-#             if japanese_matches:
-#                 # 找到第一个日语段落，保留从该位置开始的内容
-#                 first_japanese_start = japanese_matches[0].start()
-#                 # 检查前面是否有明显的分隔符（如"回答："、"返答："等）
-#                 before_japanese = text[:first_japanese_start]
-#                 separators = ['回答：', '返答：', '応答：', '答：', '：', '\n\n', '。\n']
-                
-#                 # 寻找最后一个分隔符的位置
-#                 last_sep_pos = -1
-#                 for sep in separators:
-#                     pos = before_japanese.rfind(sep)
-#                     if pos > last_sep_pos:
-#                         last_sep_pos = pos + len(sep)
-                
-#                 if last_sep_pos > 0:
-#                     # 从分隔符后开始保留
-#                     text = text[last_sep_pos:].strip()
-#                 else:
-#                     # 从第一个日语段落开始保留
-#                     text = text[first_japanese_start:].strip()
-        
-#         # 如果文本开头是中文推理模式（包含"分析"、"建议"、"需要"等），尝试截断
-#         if text.startswith(('分析', '建议', '需要', '根据', '基于', '我认为', '我觉得')):
-#             # 寻找第一个日语段落或明显的回答标记
-#             answer_markers = ['回答：', '返答：', '応答：', '答：']
-#             for marker in answer_markers:
-#                 if marker in text:
-#                     text = text.split(marker, 1)[-1].strip()
-#                     break
-            
-#             # 如果没找到标记，寻找第一个连续的日语段落
-#             if any(marker in text for marker in answer_markers) == False:
-#                 japanese_matches = list(re.finditer(r'[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]{5,}', text))
-#                 if japanese_matches:
-#                     text = text[japanese_matches[0].start():].strip()
-    
-#     # 最终清理
-#     text = text.strip()
-    
-#     # 如果清理后为空或过短，尝试保留原始文本的一部分
-#     if not text or len(text) < 5:
-#         # 如果原始文本存在，至少保留前max_length个字符
-#         if original_text and len(original_text.strip()) > 0:
-#             # 只做最基本的清理：移除明显的垃圾token
-#             fallback_text = original_text
-#             for pattern in [r'\bVRTX\b', r'\bVERTEX\b', r'<Vertex>', r'\(Vertex\)', r'_VERTEX_',
-#                            r'\bPorno\b', r'\bporno\b', r'Viagra\s+Porno']:
-#                 fallback_text = re.sub(pattern, '', fallback_text, flags=re.IGNORECASE)
-#             fallback_text = fallback_text.strip()
-#             if fallback_text:
-#                 text = fallback_text[:max_length] if len(fallback_text) > max_length else fallback_text
-    
-#     return text.strip()
-
-
-
 def process_scenario(
     scenario_path: str,
     checkpoint_dir: str,
@@ -1072,9 +823,6 @@ def process_scenario(
         print(f"  pad_token_id: {tokenizer.pad_token_id}")
         print(f"  eos_token_id: {tokenizer.eos_token_id}")
 
-
-
-
     
     # 验证 tokenizer 配置（仅非vLLM模式）
     if vllm_engine is None:
@@ -1100,15 +848,15 @@ def process_scenario(
         
         if torch.cuda.is_available():
             if use_multi_gpu or (use_deepspeed and deepspeed_available):
-            # 使用所有可用的 GPU
-            num_gpus = torch.cuda.device_count()
-            if use_deepspeed and deepspeed_available:
-                print(f"  使用 DeepSpeed 多 GPU 模式，可用 GPU 数量: {num_gpus}")
+                # 使用所有可用的 GPU
+                num_gpus = torch.cuda.device_count()
+                if use_deepspeed and deepspeed_available:
+                    print(f"  使用 DeepSpeed 多 GPU 模式，可用 GPU 数量: {num_gpus}")
+                else:
+                    print(f"  使用多 GPU 模式，可用 GPU 数量: {num_gpus}")
+                print(f"  将使用 GPU: {list(range(num_gpus))}")
+                target_device = None  # device_map="auto" 或 DeepSpeed 会自动分配
             else:
-                print(f"  使用多 GPU 模式，可用 GPU 数量: {num_gpus}")
-            print(f"  将使用 GPU: {list(range(num_gpus))}")
-            target_device = None  # device_map="auto" 或 DeepSpeed 会自动分配
-        else:
             # 使用指定的单个 GPU
             target_device = torch.device(f'cuda:{gpu_id}')
             print(f"  使用单 GPU 模式，目标设备: {target_device}")
@@ -1298,23 +1046,7 @@ def process_scenario(
 
 模型文件检查结果:
   - Safetensors 文件: {len(model_files['safetensors_files'])} 个
-  - PyTorch 文件: {len(model_files['pytorch_files'])} 个
 
-可能的原因和解决方案：
-1. Safetensors header 太大：这是 Qwen3-30B-A3B 模型的已知问题
-   - 解决方案 A: 将 safetensors 转换为 PyTorch 格式
-     运行: python -c "from transformers import AutoModel; model = AutoModel.from_pretrained('{base_model_path}', trust_remote_code=True); model.save_pretrained('{base_model_path}_pytorch', safe_serialization=False)"
-     然后使用转换后的路径: {base_model_path}_pytorch
-   - 解决方案 B: 更新 safetensors 库到最新版本
-     pip install --upgrade safetensors transformers accelerate
-   - 解决方案 C: 使用更少的 GPU（减少到 4 张或更少）
-   - 解决方案 D: 使用单 GPU 模式（不使用 --use_multi_gpu）
-
-2. 内存不足：确保有足够的系统内存（建议至少 64GB）
-
-3. 模型文件损坏：检查模型文件完整性
-
-如果问题持续，请联系模型提供者获取 PyTorch 格式的权重文件。
 """
                     raise RuntimeError(error_msg)
             elif torch.cuda.is_available():
@@ -1580,14 +1312,6 @@ def process_scenario(
   - Safetensors 文件: {len(model_files['safetensors_files'])} 个
   - PyTorch 文件: {len(model_files['pytorch_files'])} 个
 
-建议的解决方案：
-1. 将 safetensors 转换为 PyTorch 格式:
-   python -c "from transformers import AutoModel; model = AutoModel.from_pretrained('{base_model_path}', trust_remote_code=True); model.save_pretrained('{base_model_path}_pytorch', safe_serialization=False)"
-
-2. 更新库版本:
-   pip install --upgrade safetensors transformers accelerate
-
-3. 使用单 GPU 模式（不使用 --use_multi_gpu）
 """
                 raise RuntimeError(error_msg)
             # 先检查模型状态，再移动到设备
