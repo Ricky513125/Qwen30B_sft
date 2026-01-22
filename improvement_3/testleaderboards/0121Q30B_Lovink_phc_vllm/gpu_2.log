@@ -1,5 +1,3 @@
-`torch_dtype` is deprecated! Use `dtype` instead!
-警告: vLLM 库未安装，无法使用 vLLM 加速推理
 目标 GPU: 0
 CUDA 可用，GPU 数量: 1
 将使用 GPU: 0
@@ -11,45 +9,169 @@ CUDA 可用，GPU 数量: 1
 数据分片 2/8: 处理样本 30 到 45 (共 15 个样本)
 ✅ 成功将 7736 个样本保存至: /data/lingyu.li/parallel-post-train/ablation/sample_results/extracted_samples.jsonl
 训练样本数: 7736
-警告: vLLM 未安装，回退到标准 transformers 模式
-加载模型...
-检查模型文件: /mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507
-  发现 safetensors 文件: 16 个
-  发现 PyTorch 文件: 0 个
-加载 tokenizer（必须与模型 checkpoint 完全一致）
-✓ Tokenizer 加载成功
-  vocab_size: 151643
-  pad_token_id: 151643
-  eos_token_id: 151645
-  Tokenizer 词汇表大小: 151669
-  pad_token_id: 151643
-  eos_token_id: 151645
-  bos_token_id: None
-  加载模型权重...
-  使用单 GPU 模式，目标设备: cuda:0
-  使用数据类型: bfloat16
-  尝试使用 safetensors 格式加载...
-Loading checkpoint shards:   0%|          | 0/16 [00:00<?, ?it/s]Loading checkpoint shards:   6%|▋         | 1/16 [00:01<00:15,  1.02s/it]Loading checkpoint shards:  12%|█▎        | 2/16 [00:02<00:14,  1.03s/it]Loading checkpoint shards:  19%|█▉        | 3/16 [00:03<00:13,  1.05s/it]Loading checkpoint shards:  25%|██▌       | 4/16 [00:04<00:12,  1.05s/it]Loading checkpoint shards:  31%|███▏      | 5/16 [00:05<00:11,  1.06s/it]Loading checkpoint shards:  38%|███▊      | 6/16 [00:06<00:10,  1.06s/it]Loading checkpoint shards:  44%|████▍     | 7/16 [00:07<00:09,  1.05s/it]Loading checkpoint shards:  50%|█████     | 8/16 [00:08<00:08,  1.04s/it]Loading checkpoint shards:  56%|█████▋    | 9/16 [00:09<00:07,  1.03s/it]Loading checkpoint shards:  62%|██████▎   | 10/16 [00:10<00:06,  1.04s/it]Loading checkpoint shards:  69%|██████▉   | 11/16 [00:11<00:05,  1.04s/it]Loading checkpoint shards:  75%|███████▌  | 12/16 [00:12<00:04,  1.04s/it]Loading checkpoint shards:  81%|████████▏ | 13/16 [00:13<00:03,  1.05s/it]Loading checkpoint shards:  88%|████████▊ | 14/16 [00:14<00:02,  1.04s/it]Loading checkpoint shards:  94%|█████████▍| 15/16 [00:15<00:01,  1.04s/it]Loading checkpoint shards: 100%|██████████| 16/16 [00:15<00:00,  1.24it/s]Loading checkpoint shards: 100%|██████████| 16/16 [00:15<00:00,  1.01it/s]
-  ✓ 使用 safetensors 格式加载成功
-  模型权重加载完成
-警告: tokenizer vocab (151643) != model vocab (151936)
-这是正常的，因为 Qwen3 模型的词汇表大小可能大于 tokenizer 的词汇表大小
-模型会自动处理这种情况，只要 tokenizer 的词汇表是模型词汇表的子集即可
-✓ Tokenizer 词汇表 (151643) 是模型词汇表 (151936) 的子集，可以继续
-日志文件: improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm/inference_LovinkDialogue_profile_and_history_and_context_20260121_173826.json
-生成 continuations...
-生成进度:   0%|          | 0/15 [00:00<?, ?it/s]生成进度 (样本 1/15):   0%|          | 0/15 [00:00<?, ?it/s]生成进度 (样本 1/15):   7%|▋         | 1/15 [02:09<30:08, 129.16s/it]生成进度 (样本 2/15):  13%|█▎        | 2/15 [02:09<27:59, 129.16s/it]生成进度 (样本 2/15):  20%|██        | 3/15 [03:59<14:52, 74.36s/it] 生成进度 (样本 3/15):  27%|██▋       | 4/15 [03:59<13:37, 74.36s/it]生成进度 (样本 3/15):  33%|███▎      | 5/15 [06:08<11:31, 69.20s/it]生成进度 (样本 4/15):  33%|███▎      | 5/15 [06:08<11:31, 69.20s/it]生成进度 (样本 4/15):  40%|████      | 6/15 [08:06<12:22, 82.53s/it]生成进度 (样本 5/15):  47%|████▋     | 7/15 [08:06<11:00, 82.53s/it]生成进度 (样本 5/15):  53%|█████▎    | 8/15 [10:09<08:32, 73.22s/it]生成进度 (样本 6/15):  53%|█████▎    | 8/15 [10:09<08:32, 73.22s/it]生成进度 (样本 6/15):  60%|██████    | 9/15 [12:14<08:33, 85.57s/it]生成进度 (样本 7/15):  60%|██████    | 9/15 [12:14<08:33, 85.57s/it]生成进度 (样本 7/15):  67%|██████▋   | 10/15 [14:03<07:37, 91.44s/it]生成进度 (样本 8/15):  73%|███████▎  | 11/15 [14:03<06:05, 91.44s/it]生成进度 (样本 8/15):  80%|████████  | 12/15 [16:34<04:14, 84.79s/it]生成进度 (样本 9/15):  80%|████████  | 12/15 [16:34<04:14, 84.79s/it]生成进度 (样本 9/15):  87%|████████▋ | 13/15 [18:38<03:07, 93.93s/it]生成进度 (样本 10/15):  87%|████████▋ | 13/15 [18:38<03:07, 93.93s/it]生成进度 (样本 10/15):  93%|█████████▎| 14/15 [21:02<01:46, 106.26s/it]生成进度 (样本 11/15):  93%|█████████▎| 14/15 [21:02<01:46, 106.26s/it]生成进度 (样本 11/15): 100%|██████████| 15/15 [23:34<00:00, 118.14s/it]生成进度 (样本 12/15): : 16it [23:34, 118.14s/it]                      生成进度 (样本 12/15): : 17it [27:11, 114.09s/it]生成进度 (样本 13/15): : 17it [27:11, 114.09s/it]生成进度 (样本 13/15): : 18it [29:08, 114.81s/it]生成进度 (样本 14/15): : 18it [29:08, 114.81s/it]生成进度 (样本 14/15): : 19it [31:06, 115.61s/it]生成进度 (样本 15/15): : 19it [31:06, 115.61s/it]生成进度 (样本 15/15): : 20it [33:11, 118.11s/it]生成进度 (样本 15/15): 100%|██████████| 15/15 [33:11<00:00, 132.80s/it]
-
-✓ 详细日志已保存到: improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm/inference_LovinkDialogue_profile_and_history_and_context_20260121_173826.json
-
-生成统计:
-  总data项: 15
-  成功生成: 15
-  跳过: 0
-  错误: 0
-输出目录: improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm
-
-✓ 结果已保存到: improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm/test_leaderboard_shard_2.json
-  每个样本生成了 5 个 continuations
-  输出目录: improvement_3/testleaderboards/0121Q30B_Lovink_phc_vllm
-  注意: 最终交付时只需要保留 test_leaderboard.json 文件
+使用 vLLM 加速推理...
+vLLM 将使用 GPU 0 (映射为 cuda:0)
+初始化 vLLM 引擎...
+INFO 01-22 15:48:55 [utils.py:263] non-default args: {'trust_remote_code': True, 'dtype': 'bfloat16', 'max_model_len': 4096, 'disable_log_stats': True, 'model': '/mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507'}
+The argument `trust_remote_code` is to be used with Auto classes. It has no effect here and is ignored.
+The argument `trust_remote_code` is to be used with Auto classes. It has no effect here and is ignored.
+INFO 01-22 15:48:55 [model.py:530] Resolved architecture: Qwen3MoeForCausalLM
+INFO 01-22 15:48:55 [model.py:1545] Using max model len 4096
+INFO 01-22 15:48:56 [scheduler.py:229] Chunked prefill is enabled with max_num_batched_tokens=16384.
+INFO 01-22 15:48:56 [vllm.py:630] Asynchronous scheduling is enabled.
+INFO 01-22 15:48:56 [vllm.py:637] Disabling NCCL for DP synchronization when using async scheduling.
+WARNING 01-22 15:48:56 [system_utils.py:136] We must use the `spawn` multiprocessing start method. Overriding VLLM_WORKER_MULTIPROC_METHOD to 'spawn'. See https://docs.vllm.ai/en/latest/usage/troubleshooting.html#python-multiprocessing for more information. Reasons: CUDA is initialized
+[0;36m(EngineCore_DP0 pid=242346)[0;0m INFO 01-22 15:49:09 [core.py:97] Initializing a V1 LLM engine (v0.14.0) with config: model='/mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507', speculative_config=None, tokenizer='/mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=True, dtype=torch.bfloat16, max_seq_len=4096, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=None, enforce_eager=False, enable_return_routed_experts=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False), seed=0, served_model_name=/mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [16384], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 272, 288, 304, 320, 336, 352, 368, 384, 400, 416, 432, 448, 464, 480, 496, 512], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 512, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': True}, 'local_cache_dir': None}
+[0;36m(EngineCore_DP0 pid=242346)[0;0m INFO 01-22 15:49:11 [parallel_state.py:1214] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://103.248.57.11:55765 backend=nccl
+[0;36m(EngineCore_DP0 pid=242346)[0;0m INFO 01-22 15:49:11 [parallel_state.py:1425] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+[0;36m(EngineCore_DP0 pid=242346)[0;0m INFO 01-22 15:49:13 [gpu_model_runner.py:3808] Starting to load model /mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507...
+[0;36m(EngineCore_DP0 pid=242346)[0;0m INFO 01-22 15:49:39 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [gpu_model_runner.py:3903] Failed to load model - not enough GPU memory. Try lowering --gpu-memory-utilization to free memory for weights, increasing --tensor-parallel-size, or using --quantization. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more tips. (original error: CUDA out of memory. Tried to allocate 768.00 MiB. GPU 0 has a total capacity of 139.80 GiB of which 348.38 MiB is free. Including non-PyTorch memory, this process has 17.67 GiB memory in use. Process 242349 has 16.51 GiB memory in use. Process 242361 has 17.67 GiB memory in use. Process 242354 has 16.51 GiB memory in use. Process 242348 has 17.67 GiB memory in use. Process 242345 has 18.42 GiB memory in use. Process 242347 has 17.26 GiB memory in use. Process 242362 has 17.67 GiB memory in use. Of the allocated memory 16.99 GiB is allocated by PyTorch, and 21.44 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables))
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936] EngineCore failed to start.
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936] Traceback (most recent call last):
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/core.py", line 927, in run_engine_core
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     engine_core = EngineCoreProc(*args, engine_index=dp_rank, **kwargs)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/core.py", line 692, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     super().__init__(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/core.py", line 106, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     self.model_executor = executor_class(vllm_config)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/executor/abstract.py", line 101, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     self._init_executor()
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     self.driver_worker.load_model()
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/worker/gpu_worker.py", line 274, in load_model
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/worker/gpu_model_runner.py", line 3904, in load_model
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     raise e
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/worker/gpu_model_runner.py", line 3827, in load_model
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     self.model = model_loader.load_model(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/model_loader/base_loader.py", line 50, in load_model
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     model = initialize_model(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]             ^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/model_loader/utils.py", line 48, in initialize_model
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     return model_class(vllm_config=vllm_config, prefix=prefix)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_moe.py", line 659, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     self.model = Qwen3MoeModel(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]                  ^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/compilation/decorators.py", line 305, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     old_init(self, **kwargs)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_moe.py", line 412, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     self.start_layer, self.end_layer, self.layers = make_layers(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]                                                     ^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/utils.py", line 606, in make_layers
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     maybe_offload_to_cpu(layer_fn(prefix=f"{prefix}.{idx}"))
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_moe.py", line 414, in <lambda>
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     lambda prefix: Qwen3MoeDecoderLayer(vllm_config=vllm_config, prefix=prefix),
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_moe.py", line 352, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     self.mlp = Qwen3MoeSparseMoeBlock(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]                ^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_moe.py", line 163, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     self.experts = FusedMoE(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]                    ^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/layers/fused_moe/layer.py", line 675, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     self.quant_method.create_weights(layer=self, **moe_quant_params)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/layers/fused_moe/unquantized_fused_moe_method.py", line 148, in create_weights
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     torch.empty(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/torch/utils/_device.py", line 103, in __torch_function__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]     return func(*args, **kwargs)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936]            ^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m ERROR 01-22 15:49:40 [core.py:936] torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 768.00 MiB. GPU 0 has a total capacity of 139.80 GiB of which 348.38 MiB is free. Including non-PyTorch memory, this process has 17.67 GiB memory in use. Process 242349 has 16.51 GiB memory in use. Process 242361 has 17.67 GiB memory in use. Process 242354 has 16.51 GiB memory in use. Process 242348 has 17.67 GiB memory in use. Process 242345 has 18.42 GiB memory in use. Process 242347 has 17.26 GiB memory in use. Process 242362 has 17.67 GiB memory in use. Of the allocated memory 16.99 GiB is allocated by PyTorch, and 21.44 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m Process EngineCore_DP0:
+[0;36m(EngineCore_DP0 pid=242346)[0;0m Traceback (most recent call last):
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self.run()
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self._target(*self._args, **self._kwargs)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/core.py", line 940, in run_engine_core
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     raise e
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/core.py", line 927, in run_engine_core
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     engine_core = EngineCoreProc(*args, engine_index=dp_rank, **kwargs)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/core.py", line 692, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     super().__init__(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/core.py", line 106, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self.model_executor = executor_class(vllm_config)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/executor/abstract.py", line 101, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self._init_executor()
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self.driver_worker.load_model()
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/worker/gpu_worker.py", line 274, in load_model
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/worker/gpu_model_runner.py", line 3904, in load_model
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     raise e
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/worker/gpu_model_runner.py", line 3827, in load_model
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self.model = model_loader.load_model(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m                  ^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/model_loader/base_loader.py", line 50, in load_model
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     model = initialize_model(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m             ^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/model_loader/utils.py", line 48, in initialize_model
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     return model_class(vllm_config=vllm_config, prefix=prefix)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_moe.py", line 659, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self.model = Qwen3MoeModel(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m                  ^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/compilation/decorators.py", line 305, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     old_init(self, **kwargs)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_moe.py", line 412, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self.start_layer, self.end_layer, self.layers = make_layers(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m                                                     ^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/utils.py", line 606, in make_layers
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     maybe_offload_to_cpu(layer_fn(prefix=f"{prefix}.{idx}"))
+[0;36m(EngineCore_DP0 pid=242346)[0;0m                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_moe.py", line 414, in <lambda>
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     lambda prefix: Qwen3MoeDecoderLayer(vllm_config=vllm_config, prefix=prefix),
+[0;36m(EngineCore_DP0 pid=242346)[0;0m                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_moe.py", line 352, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self.mlp = Qwen3MoeSparseMoeBlock(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m                ^^^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_moe.py", line 163, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self.experts = FusedMoE(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m                    ^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/layers/fused_moe/layer.py", line 675, in __init__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     self.quant_method.create_weights(layer=self, **moe_quant_params)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/model_executor/layers/fused_moe/unquantized_fused_moe_method.py", line 148, in create_weights
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     torch.empty(
+[0;36m(EngineCore_DP0 pid=242346)[0;0m   File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/torch/utils/_device.py", line 103, in __torch_function__
+[0;36m(EngineCore_DP0 pid=242346)[0;0m     return func(*args, **kwargs)
+[0;36m(EngineCore_DP0 pid=242346)[0;0m            ^^^^^^^^^^^^^^^^^^^^^
+[0;36m(EngineCore_DP0 pid=242346)[0;0m torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 768.00 MiB. GPU 0 has a total capacity of 139.80 GiB of which 348.38 MiB is free. Including non-PyTorch memory, this process has 17.67 GiB memory in use. Process 242349 has 16.51 GiB memory in use. Process 242361 has 17.67 GiB memory in use. Process 242354 has 16.51 GiB memory in use. Process 242348 has 17.67 GiB memory in use. Process 242345 has 18.42 GiB memory in use. Process 242347 has 17.26 GiB memory in use. Process 242362 has 17.67 GiB memory in use. Of the allocated memory 16.99 GiB is allocated by PyTorch, and 21.44 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank0]:[W122 15:49:41.081712651 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/mnt/parallel/Qwen_30B_try/improvement_3/inference.py", line 1963, in <module>
+    main()
+  File "/mnt/parallel/Qwen_30B_try/improvement_3/inference.py", line 1936, in main
+    process_scenario(
+  File "/mnt/parallel/Qwen_30B_try/improvement_3/inference.py", line 960, in process_scenario
+    vllm_engine = LLM(**vllm_kwargs)
+                  ^^^^^^^^^^^^^^^^^^
+  File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/entrypoints/llm.py", line 338, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/llm_engine.py", line 176, in from_engine_args
+    return cls(
+           ^^^^
+  File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/llm_engine.py", line 110, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/core_client.py", line 94, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/core_client.py", line 652, in __init__
+    super().__init__(
+  File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/core_client.py", line 479, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/utils.py", line 921, in launch_core_engines
+    wait_for_engine_startup(
+  File "/mnt/parallel/Qwen_30B_try/lingyu/lib/python3.12/site-packages/vllm/v1/engine/utils.py", line 980, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}

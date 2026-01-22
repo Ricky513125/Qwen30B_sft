@@ -940,10 +940,32 @@ def process_scenario(
     vllm_engine = None
     if use_vllm and VLLM_AVAILABLE:
         print("使用 vLLM 加速推理...")
-        # 设置CUDA可见设备（单卡）
-        if gpu_id is not None:
-            os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
-            print(f"vLLM 将使用 GPU {gpu_id} (映射为 cuda:0)")
+        # 注意：CUDA_VISIBLE_DEVICES应该在shell脚本中设置（通过CUDA_VISIBLE_DEVICES=${GPU_ID}）
+        # 这里不再重复设置，避免覆盖shell中的设置
+        # 如果shell中没有设置，才在这里设置
+        if 'CUDA_VISIBLE_DEVICES' not in os.environ:
+            if gpu_id is not None:
+                os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+                print(f"在Python中设置 CUDA_VISIBLE_DEVICES={gpu_id}")
+            else:
+                print("警告: 未设置CUDA_VISIBLE_DEVICES，将使用所有可见GPU")
+        else:
+            print(f"使用环境变量 CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
+        
+        # 验证可见GPU（在导入torch后）
+        import torch
+        if torch.cuda.is_available():
+            visible_gpus = torch.cuda.device_count()
+            print(f"可见GPU数量: {visible_gpus}")
+            if visible_gpus > 0:
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                free_memory = (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)) / 1024**3
+                print(f"GPU 0: {gpu_name}, 总内存: {gpu_memory:.2f} GB, 可用内存: {free_memory:.2f} GB")
+                
+                # 检查是否有足够内存
+                if free_memory < 20:
+                    print(f"警告: GPU可用内存不足 ({free_memory:.2f} GB)，可能需要清理其他进程")
         
         # 加载vLLM引擎
         vllm_kwargs = {
@@ -951,14 +973,41 @@ def process_scenario(
             "tensor_parallel_size": vllm_tensor_parallel_size,
             "trust_remote_code": True,
             "dtype": "bfloat16" if torch.cuda.is_bf16_supported() else "float16",
+            "gpu_memory_utilization": 0.85,  # 限制GPU内存使用为85%，留出缓冲
+            "max_model_len": vllm_max_model_len if vllm_max_model_len else 2048,  # 默认2048，减少内存占用
         }
         
-        if vllm_max_model_len:
-            vllm_kwargs["max_model_len"] = vllm_max_model_len
+        # 对于Qwen3-30B MoE模型，可能需要更保守的设置
+        print(f"vLLM配置: gpu_memory_utilization=0.85, max_model_len={vllm_kwargs['max_model_len']}")
         
         print(f"初始化 vLLM 引擎...")
-        vllm_engine = LLM(**vllm_kwargs)
-        print("✓ vLLM 引擎加载成功")
+        try:
+            vllm_engine = LLM(**vllm_kwargs)
+            print("✓ vLLM 引擎加载成功")
+        except RuntimeError as e:
+            error_msg = str(e)
+            if "out of memory" in error_msg.lower() or "CUDA" in error_msg:
+                print(f"vLLM初始化失败（内存不足），尝试降低内存使用...")
+                print(f"错误详情: {error_msg[:500]}")
+                
+                # 尝试更保守的设置
+                vllm_kwargs["gpu_memory_utilization"] = 0.70  # 进一步降低到70%
+                vllm_kwargs["max_model_len"] = min(vllm_kwargs.get("max_model_len", 2048), 1536)  # 进一步减少
+                print(f"重试配置: gpu_memory_utilization=0.70, max_model_len={vllm_kwargs['max_model_len']}")
+                try:
+                    vllm_engine = LLM(**vllm_kwargs)
+                    print("✓ vLLM 引擎加载成功（使用保守配置）")
+                except RuntimeError as e2:
+                    print(f"错误: vLLM初始化仍然失败: {str(e2)[:500]}")
+                    print("\n建议解决方案:")
+                    print("  1. 检查是否有其他进程占用GPU: nvidia-smi")
+                    print("  2. 减少max_model_len到1024或更小")
+                    print("  3. 使用量化: 添加 --quantization awq 参数（如果模型支持）")
+                    print("  4. 减少gpu_memory_utilization到0.60或更低")
+                    print("  5. 确保每个进程只使用一张GPU，检查CUDA_VISIBLE_DEVICES设置")
+                    raise RuntimeError(f"vLLM初始化失败，请检查GPU内存和进程隔离: {str(e2)[:200]}")
+            else:
+                raise
         
         # vLLM模式下，不需要加载tokenizer（vLLM内部会处理）
         # 但为了兼容性，仍然加载tokenizer用于prompt构建
