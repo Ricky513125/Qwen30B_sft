@@ -1,0 +1,67 @@
+{
+  "model": {
+    "name": "Gemma-3-27B",
+    "path": "/mnt/parallel/models/gemma-3-27b-it",
+    "hf_model_name": "Gemma/gemma-3-27b-it",
+    "checkpoint_dir": "/mnt/parallel/checkpoints"
+  },
+  "data": {
+    "train_path": "/mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue/train.json",
+    "test_path": "/mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue/test.json"
+  },
+  "training": {
+    "batch_size": 1,
+    "gradient_accumulation_steps": 2,
+    "learning_rate": 1e-5,
+    "weight_decay": 0.1,
+    "warmup_steps": 100,
+    "max_length": 4096,
+    "logging_steps": 10,
+    "save_steps": 500,
+    "save_total_limit": 3
+  },
+  "ablation_configs": {
+    "profile_and_history_and_context": {
+      "use_profile": true,
+      "use_history": true,
+      "use_context": true,
+      "name": "profile_and_history_and_context"
+    },
+    "profile_and_history": {
+      "use_profile": true,
+      "use_history": true,
+      "use_context": false,
+      "name": "profile_and_history"
+    },
+    "profile_and_context": {
+      "use_profile": true,
+      "use_history": false,
+      "use_context": true,
+      "name": "profile_and_context"
+    },
+    "history_and_context": {
+      "use_profile": false,
+      "use_history": true,
+      "use_context": true,
+      "name": "history_and_context"
+    },
+    "profile_only": {
+      "use_profile": true,
+      "use_history": false,
+      "use_context": false,
+      "name": "profile_only"
+    },
+    "history_only": {
+      "use_profile": false,
+      "use_history": true,
+      "use_context": false,
+      "name": "history_only"
+    },
+    "context_only": {
+      "use_profile": false,
+      "use_history": false,
+      "use_context": true,
+      "name": "context_only"
+    }
+  }
+}
