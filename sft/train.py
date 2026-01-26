@@ -1,0 +1,221 @@
+"""
+消融实验训练脚本
+支持三种配置：
+1. profile + history
+2. profile only
+3. history only
+"""
+import json
+import argparse
+import os
+import sys
+from pathlib import Path
+import random
+import torch
+
+# 添加当前目录到路径
+sys.path.insert(0, str(Path(__file__).parent))
+from data_loader import load_train_data, extract_training_samples, get_user_history_samples, get_user_only_history
+from trainer import AblationTrainer
+
+
+def split_train_val(samples, val_ratio=0.1, seed=42):
+    """划分训练集和验证集（按用户划分，避免数据泄露）"""
+    random.seed(seed)
+    
+    user_samples = {}
+    for sample in samples:
+        user_hash = sample['user_hash']
+        if user_hash not in user_samples:
+            user_samples[user_hash] = []
+        user_samples[user_hash].append(sample)
+    
+    train_samples = []
+    val_samples = []
+    
+    for user_hash, user_data in user_samples.items():
+        random.shuffle(user_data)
+        split_idx = int(len(user_data) * (1 - val_ratio))
+        train_samples.extend(user_data[:split_idx])
+        val_samples.extend(user_data[split_idx:])
+    
+    return train_samples, val_samples
+
+
+def add_history_to_samples(train_samples, all_samples):
+    """为每个样本添加历史信息（只包含用户的问题，不包含assistant内容）"""
+    samples_with_history = []
+    for sample in train_samples:
+        user_hash = sample['user_hash']
+        # 使用 get_user_only_history 只获取用户的问题文本列表，不包含assistant内容
+        # 传入current_sample和current_context，用于排除和智能选择
+        history = get_user_only_history(
+            all_samples, 
+            user_hash,
+            current_sample=sample,
+            current_context=sample.get('context'),
+            max_history=15,
+            use_cache=True
+        )
+        sample['history'] = history
+        samples_with_history.append(sample)
+    return samples_with_history
+
+
+def main():
+    parser = argparse.ArgumentParser(description='消融实验训练')
+    parser.add_argument('--config', type=str,
+                       default='/data/lingyu.li/parallel-post-train/ablation/config.json',
+                       help='配置文件路径')
+    parser.add_argument('--ablation_config', type=str, required=True,
+                       choices=['profile_and_history_and_context', 'profile_and_history', 'profile_and_context', 
+                               'history_and_context', 'profile_only', 'history_only', 'context_only'],
+                       help='消融实验配置')
+    parser.add_argument('--val_ratio', type=float, default=0.1,
+                       help='验证集比例')
+    parser.add_argument('--gpu', type=str, default="0",
+                       help='使用的GPU编号，可以是单个GPU（如"0"）或多个GPU（如"0,1,2,3,4,5,6,7"），默认：0')
+    parser.add_argument('--use_multi_gpu', action='store_true',
+                       help='使用多GPU训练（自动检测所有可用GPU）')
+    parser.add_argument('--output_dir', type=str, default=None,
+                       help='模型输出目录（覆盖配置文件中的设置）')
+    parser.add_argument('--log_file', type=str, default=None,
+                       help='训练日志文件路径（如果未指定，将自动生成）')
+    
+    args = parser.parse_args()
+    
+    # 设置使用的GPU
+    if args.use_multi_gpu:
+        # 自动使用所有可用GPU
+        num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        if num_gpus == 0:
+            print("警告: 未检测到GPU，将使用CPU")
+            gpu_ids = ""
+        else:
+            gpu_ids = ",".join([str(i) for i in range(num_gpus)])
+            print(f"自动检测到 {num_gpus} 张GPU，将使用所有GPU")
+    else:
+        # 使用指定的GPU
+        gpu_ids = args.gpu
+        num_gpus = len(gpu_ids.split(",")) if gpu_ids else 1
+    
+    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_ids
+    print(f"使用 GPU: {gpu_ids}")
+    print(f"CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
+    
+    # 验证GPU是否可用
+    if torch.cuda.is_available():
+        visible_gpu_count = torch.cuda.device_count()
+        print(f"CUDA 可用，可见 GPU 数量: {visible_gpu_count}")
+        for i in range(visible_gpu_count):
+            gpu_name = torch.cuda.get_device_name(i)
+            gpu_memory = torch.cuda.get_device_properties(i).total_memory / 1024**3
+            print(f"  GPU {i}: {gpu_name}, 内存: {gpu_memory:.2f} GB")
+    else:
+        print("警告: CUDA 不可用，将使用 CPU")
+    
+    # 加载配置
+    with open(args.config, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    
+    # 获取消融配置
+    ablation_config = config['ablation_configs'][args.ablation_config]
+    use_profile = ablation_config.get('use_profile', True)
+    use_history = ablation_config.get('use_history', True)
+    use_context = ablation_config.get('use_context', True)
+    config_name = ablation_config['name']
+    
+    print("=" * 60)
+    print(f"消融实验: {config_name}")
+    print(f"使用配置: profile={use_profile}, history={use_history}, context={use_context}")
+    print("=" * 60)
+    
+    # 加载训练数据
+    print("加载训练数据...")
+    train_path = config['data']['train_path']
+    train_data = load_train_data(train_path)
+    
+    if not train_data:
+        print(f"错误: 无法加载训练数据 from {train_path}")
+        return
+    
+    # 提取训练样本
+    all_samples = extract_training_samples(train_data)
+    print(f"提取了 {len(all_samples)} 个训练样本")
+    
+    # 如果需要使用 history，添加历史信息
+    if use_history:
+        print("添加历史信息...")
+        all_samples = add_history_to_samples(all_samples, all_samples)
+    
+    # 划分训练集和验证集
+    train_samples, val_samples = split_train_val(all_samples, args.val_ratio)
+    print(f"训练集: {len(train_samples)} 个样本")
+    print(f"验证集: {len(val_samples)} 个样本")
+    
+    # 获取模型配置（需要在所有地方都可用）
+    model_config = config['model']
+    
+    # 设置输出目录（包含数据集名称）
+    if args.output_dir:
+        # 如果指定了输出目录，直接使用
+        output_dir = args.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"使用指定的输出目录: {output_dir}")
+    else:
+        # 否则使用配置文件中的设置
+        checkpoint_dir = model_config['checkpoint_dir']
+        # 从数据路径提取数据集名称
+        train_path = config['data']['train_path']
+        dataset_name = os.path.basename(os.path.dirname(train_path))  # 例如: LovinkDialogue 或 RealPersonaChat
+        output_dir = os.path.join(checkpoint_dir, f"{dataset_name}_ablation_{config_name}")
+        
+        # 尝试创建目录，如果失败则使用本地目录
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"输出目录: {output_dir}")
+        except (OSError, IOError) as e:
+            print(f"警告: 无法在 {checkpoint_dir} 创建目录: {e}")
+            # 使用本地目录作为备选
+            local_checkpoint_dir = os.path.join(os.path.expanduser("~"), "checkpoints")
+            output_dir = os.path.join(local_checkpoint_dir, f"{dataset_name}_ablation_{config_name}")
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"使用本地目录: {output_dir}")
+    
+    # 设置日志文件路径
+    if args.log_file:
+        log_file_path = args.log_file
+    else:
+        # 自动生成日志文件路径
+        from datetime import datetime
+        log_dir = os.path.join(output_dir, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        train_path = config['data']['train_path']
+        dataset_name = os.path.basename(os.path.dirname(train_path))
+        log_file_path = os.path.join(log_dir, f"training_{dataset_name}_{config_name}_{timestamp}.json")
+    
+    print(f"训练日志将保存到: {log_file_path}")
+    
+    # 创建训练器
+    model_path = model_config['path']
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    trainer = AblationTrainer(
+        model_path=model_path,
+        output_dir=output_dir,
+        config=config,
+        use_profile=use_profile,
+        use_history=use_history,
+        use_context=use_context,
+        log_file_path=log_file_path,
+        use_multi_gpu=args.use_multi_gpu or num_gpus > 1
+    )
+    
+    # 开始训练
+    trainer.train(train_samples, val_samples)
+    
+    print(f"\n训练完成！模型保存在: {output_dir}")
+
+
+if __name__ == '__main__':
+    main()

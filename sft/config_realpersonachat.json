@@ -1,0 +1,80 @@
+{
+  "model": {
+    "name": "Qwen3-8B",
+    "path": "/mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507",
+    "hf_model_name": "Qwen/Qwen3-8B",
+    "checkpoint_dir": "/mnt/parallel/checkpoints"
+  },
+  "data": {
+    "train_path": "/data/jiashu.pu/data1/GIDigitalTwinBench/IdealSelf/RealPersonaChat/train.json",
+    "test_path": "/data/jiashu.pu/data1/GIDigitalTwinBench/IdealSelf/RealPersonaChat/test.json"
+  },
+  "training": {
+    "num_epochs": 3,
+    "batch_size": 1,
+    "gradient_accumulation_steps": 16,
+    "learning_rate": 1e-5,
+    "weight_decay": 0.1,
+    "warmup_steps": 100,
+    "max_length": 2048,
+    "logging_steps": 10,
+    "save_steps": 500,
+    "save_total_limit": 3
+  },
+  "evaluation": {
+    "num_samples": 5,
+    "beta": 0.9,
+    "alpha1": 0.4,
+    "alpha2": 0.4,
+    "alpha3": 0.2,
+    "k": 3,
+    "embedding_model": "Qwen/Qwen3-Embedding-8B",
+    "judge_model": "Qwen/Qwen3-8B",
+    "retrieval_topk": 8,
+    "calibration_samples": 200
+  },
+  "ablation_configs": {
+    "profile_and_history_and_context": {
+      "use_profile": true,
+      "use_history": true,
+      "use_context": true,
+      "name": "profile_and_history_and_context"
+    },
+    "profile_and_history": {
+      "use_profile": true,
+      "use_history": true,
+      "use_context": false,
+      "name": "profile_and_history"
+    },
+    "profile_and_context": {
+      "use_profile": true,
+      "use_history": false,
+      "use_context": true,
+      "name": "profile_and_context"
+    },
+    "history_and_context": {
+      "use_profile": false,
+      "use_history": true,
+      "use_context": true,
+      "name": "history_and_context"
+    },
+    "profile_only": {
+      "use_profile": true,
+      "use_history": false,
+      "use_context": false,
+      "name": "profile_only"
+    },
+    "history_only": {
+      "use_profile": false,
+      "use_history": true,
+      "use_context": false,
+      "name": "history_only"
+    },
+    "context_only": {
+      "use_profile": false,
+      "use_history": false,
+      "use_context": true,
+      "name": "context_only"
+    }
+  }
+}

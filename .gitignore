@@ -1,2 +1,9 @@
 lingyu/
 improvement_3/testleaderboards/
+sft/outputs/
+sft/testleaderboards/
+sft/history_cache/
+improvement_3/history_cache/
+sft/__pycache__/
+improvement_3/__pycache__/
+improvement_3/submit/
