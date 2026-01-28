@@ -382,29 +382,39 @@ class AblationTrainerDeepSpeed:
         # Accelerate 和 Trainer 会自动处理所有 DeepSpeed 相关的初始化
         print("✓ 模型将在训练时通过 Accelerate + DeepSpeed 自动加载")
 
-    def _create_deepspeed_config(self) -> str:
-        """创建 DeepSpeed ZeRO-3 配置文件"""
+    def _create_deepspeed_config(self, zero_stage: int = 2) -> str:
+        """
+        创建 DeepSpeed ZeRO 配置文件
+        
+        Args:
+            zero_stage: ZeRO stage (2 或 3)。如果 PyTorch 不支持 ZeRO-3，会自动降级到 ZeRO-2
+        """
         config_dir = Path(self.output_dir) / "deepspeed_config"
         config_dir.mkdir(parents=True, exist_ok=True)
-        config_path = config_dir / "ds_config_zero3.json"
         
-        # DeepSpeed ZeRO-3 配置 - 优化显存使用
-        deepspeed_config = {
-            "train_batch_size": "auto",
-            "train_micro_batch_size_per_gpu": "auto",
-            "gradient_accumulation_steps": "auto",
-            "gradient_clipping": 1.0,
-            "zero_optimization": {
+        # 检查 PyTorch 是否支持 ZeRO-3 需要的内部 API
+        if zero_stage == 3:
+            try:
+                import deepspeed.runtime.utils as ds_utils
+                # 尝试检查是否支持 count_used_parameters_in_backward
+                if hasattr(ds_utils, 'check_internal_apis_for_count_used_parameters'):
+                    if not ds_utils.check_internal_apis_for_count_used_parameters():
+                        print("⚠ PyTorch 版本不支持 ZeRO-3 需要的内部 API，自动降级到 ZeRO-2")
+                        zero_stage = 2
+                else:
+                    # 如果函数不存在，说明 DeepSpeed 版本可能较旧，使用 ZeRO-2
+                    print("⚠ DeepSpeed 版本可能不支持 ZeRO-3 检查，使用 ZeRO-2 以确保兼容性")
+                    zero_stage = 2
+            except Exception as e:
+                print(f"⚠ 无法检查 ZeRO-3 兼容性 ({e})，使用 ZeRO-2 以确保兼容性")
+                zero_stage = 2
+        
+        if zero_stage == 3:
+            config_path = config_dir / "ds_config_zero3.json"
+            print("✓ 使用 DeepSpeed ZeRO-3 配置")
+            # DeepSpeed ZeRO-3 配置 - 优化显存使用
+            zero_config = {
                 "stage": 3,
-                # CPU Offload 优化器和参数以节省显存
-                # "offload_optimizer": {
-                #     "device": "cpu",
-                #     "pin_memory": True
-                # },
-                # "offload_param": {
-                #     "device": "cpu",
-                #     "pin_memory": True
-                # },
                 "overlap_comm": True,
                 "contiguous_gradients": True,
                 "sub_group_size": 1e9,
@@ -415,7 +425,33 @@ class AblationTrainerDeepSpeed:
                 "stage3_max_reuse_distance": 1e9,
                 "stage3_gather_16bit_weights_on_model_save": True,
                 "round_robin_gradients": True
-            },
+            }
+        else:
+            config_path = config_dir / "ds_config_zero2.json"
+            print("✓ 使用 DeepSpeed ZeRO-2 配置（更兼容，推荐）")
+            # DeepSpeed ZeRO-2 配置 - 更兼容，但显存使用稍高
+            zero_config = {
+                "stage": 2,
+                "overlap_comm": True,
+                "contiguous_gradients": True,
+                "sub_group_size": 1e9,
+                "reduce_bucket_size": "auto",
+                "allgather_partitions": True,
+                "allgather_bucket_size": 2e8,
+                "reduce_scatter": True
+            }
+            # ZeRO-2 可以启用 CPU offload 以节省显存（如果需要）
+            # zero_config["offload_optimizer"] = {
+            #     "device": "cpu",
+            #     "pin_memory": True
+            # }
+        
+        deepspeed_config = {
+            "train_batch_size": "auto",
+            "train_micro_batch_size_per_gpu": "auto",
+            "gradient_accumulation_steps": "auto",
+            "gradient_clipping": 1.0,
+            "zero_optimization": zero_config,
             "bf16": {
                 "enabled": True
             },
