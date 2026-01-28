@@ -14,7 +14,8 @@ import torch
 # 添加当前目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 from data_loader import load_train_data, extract_training_samples, get_user_history_samples, get_user_only_history
-from trainer_deepspeed import AblationTrainerDeepSpeed
+# from trainer_deepspeed import AblationTrainerDeepSpeed
+from trainer_deepspeed_speedup import AblationTrainerDeepSpeed
 
 
 def split_train_val(samples, val_ratio=0.1, seed=42):
