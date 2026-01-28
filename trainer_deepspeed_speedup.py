@@ -462,6 +462,22 @@ class AblationTrainerDeepSpeed:
         import os
         from transformers import TrainingArguments, AutoConfig, AutoModelForCausalLM
         
+        # --- PyTorch 版本兼容性补丁 ---
+        # 修复 torch.is_autocast_enabled() 在旧版本 PyTorch 中不支持参数的问题
+        # transformers 的新版本会传入 device_type 参数，但旧版 PyTorch 不支持
+        if hasattr(torch, 'is_autocast_enabled') and callable(torch.is_autocast_enabled):
+            try:
+                # 尝试调用看是否支持参数
+                torch.is_autocast_enabled("cuda")
+            except TypeError:
+                # 不支持参数，创建包装函数
+                original_is_autocast_enabled = torch.is_autocast_enabled
+                def is_autocast_enabled_wrapper(device_type=None):
+                    # 忽略 device_type 参数，直接调用原函数
+                    return original_is_autocast_enabled()
+                torch.is_autocast_enabled = is_autocast_enabled_wrapper
+                print("✓ 已应用 PyTorch autocast 兼容性补丁（修复 torch.is_autocast_enabled 参数问题）")
+        
         # 尝试导入 no_init_weights，如果失败则使用替代方案
         try:
             from transformers.integrations import no_init_weights
