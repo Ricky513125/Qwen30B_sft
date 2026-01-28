@@ -329,8 +329,8 @@ class CustomTrainer(Trainer):
             predict_text = self.tokenizer.decode(pred_ids, skip_special_tokens=True)
             
             print(f"\n[Step {self.state.global_step}] Loss: {loss_val:.4f}")
-            print(f"🎯 Target: {target_text[:100]}")
-            print(f"🤖 Predict: {predict_text[:100]}")
+            print(f"Target: {target_text[:100]}")
+            print(f"Predict: {predict_text[:100]}")
 
             if hasattr(self, 'log_file'):
                 log_data = {

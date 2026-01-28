@@ -7,3 +7,6 @@ improvement_3/history_cache/
 sft/__pycache__/
 improvement_3/__pycache__/
 improvement_3/submit/
+__pycache__/
+history_cache/
+outputs/
