@@ -179,7 +179,6 @@ class AblationDataset(Dataset):
         full_prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
         
         # 3. 手动添加 "user: " 提示，让模型预测用户会说什么
-        # 注意：Gemma 的 chat template 使用 <start_of_turn> 和 <end_of_turn>，但我们希望使用简单的 "user: " 格式
         generation_suffix = "\nuser: "
 
         # 4. 组合成真正的 Prompt
@@ -461,7 +460,6 @@ class AblationTrainerDeepSpeed:
     def train(self, train_samples: List[Dict[str, Any]], val_samples: Optional[List[Dict[str, Any]]] = None):
         import torch
         import os
-        import transformers.models.gemma3.modeling_gemma3 as gemma3_module
         from transformers import TrainingArguments, AutoConfig, AutoModelForCausalLM
         
         # 尝试导入 no_init_weights，如果失败则使用替代方案
@@ -490,13 +488,13 @@ class AblationTrainerDeepSpeed:
             use_profile=self.use_profile, use_history=self.use_history, use_context=self.use_context
         )
 
-        # 2. 训练参数优化：针对 27B + H100
+        # 2. 训练参数优化：针对 30B + H100
         training_args = TrainingArguments(
             output_dir=self.output_dir,
             num_train_epochs=train_config.get('num_epochs', 3),
             per_device_train_batch_size=train_config.get('batch_size', 1),
             gradient_accumulation_steps=train_config.get('gradient_accumulation_steps', 4),
-            learning_rate=train_config.get('learning_rate', 2e-5), # 27B 全量微调建议调低 LR
+            learning_rate=train_config.get('learning_rate', 2e-5), # 30B 全量微调建议调低 LR
             logging_steps=train_config.get('logging_steps', 10),
             save_steps=train_config.get('save_steps', 500),
             save_total_limit=train_config.get('save_total_limit', 3),
@@ -516,12 +514,12 @@ class AblationTrainerDeepSpeed:
         def model_init():
             print(">>> 正在启动 ZeRO-3 兼容性初始化流程...")
             
-            # --- 核心修复：对 Gemma 3 类的 _init_weights 进行全局 Patch ---
+            # --- 核心修复：对 PreTrainedModel 的 _init_weights 进行全局 Patch ---
             # 理由：ZeRO-3 会分片参数，导致某些卡上的本地 weight 为空，
             # 原生代码中 .zero_() 访问 index 0 就会报错。
             
             # 关键修复：需要 patch 父类 PreTrainedModel 的 _init_weights 方法
-            # 因为 Gemma3 的 _init_weights 会调用 super()._init_weights(module)
+            # 以兼容 DeepSpeed ZeRO-3 的参数分片机制
             from transformers.modeling_utils import PreTrainedModel
             
             # 保存原始的父类 _init_weights 方法
@@ -552,30 +550,7 @@ class AblationTrainerDeepSpeed:
             
             # Patch 父类方法
             PreTrainedModel._init_weights = safe_parent_init_weights
-            print("✓ 已 patch PreTrainedModel._init_weights (父类方法)")
-            
-            # 同时 patch Gemma3 的 _init_weights 方法（虽然它调用 super，但为了保险）
-            def safe_init_weights_patch(self, module):
-                # Gemma3 的 _init_weights 会调用 super()._init_weights(module)
-                # 我们已经 patch 了父类方法，所以这里直接调用父类方法即可
-                safe_parent_init_weights(self, module)
-
-            # 找到目标类并替换方法
-            target_classes = []
-            if hasattr(gemma3_module, 'Gemma3ForCausalLM'):
-                target_classes.append(gemma3_module.Gemma3ForCausalLM)
-            if hasattr(gemma3_module, 'Gemma3ForConditionalGeneration'):
-                target_classes.append(gemma3_module.Gemma3ForConditionalGeneration)
-            if hasattr(gemma3_module, 'Gemma3Model'):
-                target_classes.append(gemma3_module.Gemma3Model)
-            
-            patched_count = 0
-            for cls in target_classes:
-                if hasattr(cls, "_init_weights"):
-                    cls._init_weights = safe_init_weights_patch
-                    patched_count += 1
-            
-            print(f"✓ 已注入安全权重初始化补丁 (Monkey Patch) - 已 patch {patched_count} 个 Gemma3 类")
+            print("✓ 已 patch PreTrainedModel._init_weights (兼容 ZeRO-3)")
 
             # --- 使用 no_init_weights 上下文加载模型 ---
             # 注意：no_init_weights 会禁用权重初始化，直接从 checkpoint 加载
@@ -587,6 +562,7 @@ class AblationTrainerDeepSpeed:
                 "trust_remote_code": True,
                 "torch_dtype": torch.bfloat16,
                 "low_cpu_mem_usage": True,
+                
             }
 
             # 自动探测并开启 Flash Attention 2
